@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Admin — Kardashev Index</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-200 p-8">
+    <div class="max-w-5xl mx-auto">
+        <!-- Top bar with version -->
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold">Admin Dashboard</h1>
+            <div class="flex items-center gap-3">
+                <span class="px-3 py-1 text-xs font-mono bg-zinc-900 border border-zinc-800 rounded">{{ version }}</span>
+                <span class="text-sm text-zinc-400">{{ admin }}</span>
+            </div>
+        </div>
+
+        <h2 class="text-xl mb-4">Pending Suggestions (Queue)</h2>
+        <div class="space-y-3 mb-10">
+            {% for s in pending %}
+            <div class="bg-zinc-900 border border-zinc-800 p-4 rounded flex justify-between items-center">
+                <div>
+                    <div class="font-medium">{{ s.name }}</div>
+                    {% if s.domain %}<div class="text-xs text-emerald-400">{{ s.domain }}</div>{% endif %}
+                    <div class="text-xs text-zinc-500">{{ s.submitted_at }}</div>
+                </div>
+                <div class="flex gap-2">
+                    <form action="/admin/approve/{{ s.id }}" method="post">
+                        <button class="bg-emerald-600 px-4 py-1 rounded text-sm">Approve &amp; Ingest</button>
+                    </form>
+                    <form action="/admin/deny/{{ s.id }}" method="post" class="flex gap-1">
+                        <input type="text" name="reason" placeholder="Denial reason" required class="bg-zinc-800 text-sm px-2 py-1 rounded w-48">
+                        <button class="bg-red-600 px-4 py-1 rounded text-sm">Deny</button>
+                    </form>
+                </div>
+            </div>
+            {% else %}
+            <p class="text-zinc-500">No pending suggestions.</p>
+            {% endfor %}
+        </div>
+
+        
+        <h2 class="text-xl mb-4">High Duplicate Attempts (Popularity Signal)</h2>
+        <table class="w-full text-sm mb-10">
+            <thead><tr class="border-b border-zinc-800"><th class="text-left py-2">Company</th><th>Attempts</th><th>Domain</th></tr></thead>
+            <tbody>
+                {% for c in high_attempt %}
+                <tr class="border-b border-zinc-900">
+                    <td class="py-2"><a href="/company/{{ c.canonical_name }}" class="text-emerald-400 hover:underline">{{ c.canonical_name }}</a></td>
+                    <td class="text-amber-400 font-mono">{{ c.suggestion_attempts }}</td>
+                    <td class="text-zinc-500">{{ c.domain or "—" }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="py-2 text-zinc-500">No companies with duplicate suggestion attempts yet.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2 class="text-xl mb-4">Recently Approved</h2>
+        <table class="w-full text-sm mb-10">
+            <thead><tr class="border-b border-zinc-800"><th class="text-left py-2">Company</th><th>Last Ingested</th></tr></thead>
+            <tbody>
+                {% for c in approved %}
+                <tr class="border-b border-zinc-900"><td class="py-2">{{ c.canonical_name }}</td><td class="text-zinc-500">{{ c.last_ingested_at }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <h2 class="text-xl mb-4">Recent Ingest Activity</h2>
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-zinc-800">
+                    <th class="text-left py-2">Time</th>
+                    <th>Action</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for log in logs %}
+                <tr class="border-b border-zinc-900 text-xs">
+                    <td class="py-1 text-zinc-500">{{ log.timestamp.strftime('%Y-%m-%d %H:%M') if log.timestamp else '—' }}</td>
+                    <td>{{ log.action }}</td>
+                    <td class="text-zinc-400">{{ log.details or '' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="text-zinc-500 py-2">No recent activity.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div class="mt-8 text-xs text-zinc-500">
+            Denials are recorded with reason. All ingestion is admin-gated. Public API + CSV export available.
+        </div>
+    </div>
+</body>
+</html>

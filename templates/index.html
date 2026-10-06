@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Kardashev Index — e/acc Alignment Rankings</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-zinc-950 text-zinc-200">
+    <div class="max-w-6xl mx-auto p-8">
+        <!-- Top bar with version -->
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h1 class="text-4xl font-bold">Kardashev Index</h1>
+                <p class="text-zinc-400">Public rankings by Effective Accelerationism alignment</p>
+            </div>
+            <div class="text-right">
+                <span class="px-3 py-1 text-xs font-mono bg-zinc-900 border border-zinc-800 rounded">{{ version }}</span>
+            </div>
+        </div>
+
+        <div class="mb-8">
+            <form action="/suggest" method="post" class="flex gap-2">
+                <input type="text" name="name" placeholder="Suggest a company (name only)" class="flex-1 bg-zinc-900 border border-zinc-800 px-4 py-2 rounded">
+                <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 px-6 py-2 rounded">Suggest</button>
+            </form>
+            <p class="text-xs text-zinc-500 mt-1">Suggestions are reviewed by admins before appearing. No direct scraping.</p>
+        </div>
+
+        <!-- Leaderboard controls -->
+        <div class="flex flex-wrap items-center justify-between mb-4 gap-4">
+            <h2 class="text-xl">Leaderboard</h2>
+            
+            <div class="flex gap-2 items-center">
+                <form method="get" class="flex">
+                    <input type="text" name="q" value="{{ q }}" placeholder="Search name or industry" class="bg-zinc-900 border border-zinc-800 px-3 py-1 text-sm rounded-l w-48">
+                    <button type="submit" class="bg-zinc-800 px-3 py-1 text-sm rounded-r border border-zinc-800">Search</button>
+                </form>
+
+                <form method="get" class="flex">
+                    <select name="category" onchange="this.form.submit()" class="bg-zinc-900 border border-zinc-800 px-3 py-1 text-sm rounded">
+                        <option value="">All (Overall)</option>
+                        {% for cat in categories %}
+                        <option value="{{ cat }}" {% if category == cat %}selected{% endif %}>{{ cat.replace('_', ' ').title() }}</option>
+                        {% endfor %}
+                    </select>
+                </form>
+            </div>
+        </div>
+
+        <table class="w-full border-collapse">
+            <thead>
+                <tr class="border-b border-zinc-800 text-left text-sm">
+                    <th class="py-3 px-4">Entity</th>
+                    <th class="py-3 px-4">Industry</th>
+                    <th class="py-3 px-4 text-right">
+                        <a href="?sort=overall{% if q %}&q={{ q }}{% endif %}{% if category %}&category={{ category }}{% endif %}" class="hover:text-emerald-400 {% if sort == 'overall' %}text-emerald-400{% endif %}">Overall</a>
+                    </th>
+                    {% for cat in categories if cat != 'overall' %}
+                    <th class="py-3 px-3 text-center text-xs">
+                        <a href="?sort={{ cat }}{% if q %}&q={{ q }}{% endif %}{% if category %}&category={{ category }}{% endif %}" class="hover:text-emerald-400 {% if sort == cat %}text-emerald-400{% endif %}">{{ cat.split('_')[0][:4].upper() }}</a>
+                    </th>
+                    {% endfor %}
+                    <th class="py-3 px-4 text-sm text-zinc-500">Updated</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in companies %}
+                <tr class="border-b border-zinc-900 hover:bg-zinc-900">
+                    <td class="py-3 px-4"><a href="/company/{{ item.company.canonical_name }}" class="text-emerald-400 hover:underline">{{ item.company.canonical_name }}</a></td>
+                    <td class="py-3 px-4 text-zinc-400 text-sm">{{ item.company.industry or '—' }}</td>
+                    <td class="py-3 px-4 text-right font-mono text-emerald-400 text-lg">{{ item.overall }}</td>
+                    {% for cat in categories if cat != 'overall' %}
+                    <td class="py-3 px-3 text-center text-sm {% if item.scores.get(cat) %}text-zinc-300{% else %}text-zinc-600{% endif %}">
+                        {{ '%.1f'|format(item.scores.get(cat).score) if item.scores.get(cat) else '—' }}
+                    </td>
+                    {% endfor %}
+                    <td class="py-3 px-4 text-sm text-zinc-500">{{ item.company.last_ingested_at.strftime('%Y-%m-%d') if item.company.last_ingested_at else '—' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        
+        <footer class="mt-12 text-xs text-zinc-500">
+            Admin access at <code>/admin</code> (not linked). Built for e/acc evaluation.
+        </footer>
+    </div>
+</body>
+</html>

@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: kardashev
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kardashev_test}
+      POSTGRES_DB: kardashev_index
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kardashev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://kardashev:${POSTGRES_PASSWORD:-kardashev_test}@db:5432/kardashev_index
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}   # generate with: python -c "from passlib.hash import bcrypt; print(bcrypt.hash('yourpass'))"
+      SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+    ports:
+      - "8088:8000"   # change host port if needed
+    restart: unless-stopped
+
+volumes:
+  pgdata:
