@@ -9,7 +9,6 @@ import os
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-import os
 
 # Normalize Render Postgres URL for psycopg2-binary and override alembic config
 db_url = os.getenv("DATABASE_URL")

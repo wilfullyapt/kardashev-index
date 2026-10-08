@@ -489,7 +489,6 @@ def submit_suggestion(
 ):
     # from fastapi import Form  (moved to top)
     # Reuse existing suggestion logic (simplified for MVP)
-    norm = normalize_name(name)
     dup = find_duplicate_company(db, name, domain)
     if dup:
         return templates.TemplateResponse(
