@@ -1,31 +1,66 @@
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
-from fastapi.concurrency import run_in_threadpool
 from starlette.responses import RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
+from contextlib import asynccontextmanager
+import asyncio
+import logging
 import os
 from dotenv import load_dotenv
-from .db import get_db
-from .models import Company, Suggestion, Score, ScoreHistory, IngestLog, CATEGORIES  # noqa: F401 (re-exported)
-from . import judgment as jm
-from .judgment import JudgmentError, JudgmentResult, summarize_scores, is_placeholder
+from .db import get_db, SessionLocal
+from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, CATEGORIES  # noqa: F401 (re-exported)
+from . import runs as runs_svc
+from .pipeline import methodology as meth
+from .pipeline.config import settings as pipeline_settings
+from .pipeline.fetch import HttpFetcher
+from .pipeline.llm import XAIClient
+from .pipeline.runner import Deps
+from .worker import Worker
 from datetime import datetime, UTC
-from openai import OpenAI
 from sqlalchemy.exc import IntegrityError
 from collections import defaultdict
 import hmac
-import threading
 import rapidfuzz
 
 load_dotenv()
+log = logging.getLogger("kardashev")
 
 # App versioning
-__version__ = "v0.1"
+__version__ = "v0.2"
 
-app = FastAPI(title="Kardashev Index")
+# xAI key (existing env var names). The pipeline builds its own httpx client from it.
+XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
+
+
+def build_deps() -> Deps:
+    """Production dependencies for a judgment run (fresh settings each run, so env changes apply)."""
+    cfg = pipeline_settings()
+    llm = XAIClient(XAI_API_KEY, base_url=cfg.xai_base_url, chat_timeout_s=cfg.chat_timeout_s,
+                    search_timeout_s=cfg.search_timeout_s, max_retries=cfg.max_retries) if XAI_API_KEY else None
+    return Deps(llm=llm, fetcher=HttpFetcher(timeout_s=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes),
+                settings=cfg)
+
+
+worker = Worker(SessionLocal, lambda: build_deps())
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    task = None
+    if os.getenv("WORKER_ENABLED", "1").lower() not in ("0", "false", "no"):
+        task = asyncio.create_task(worker.run_forever())
+    try:
+        yield
+    finally:
+        worker.stop()
+        if task:
+            task.cancel()
+
+
+app = FastAPI(title="Kardashev Index", lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="static")
 
@@ -33,16 +68,6 @@ app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.paren
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")
 ADMIN_PASSWORD_HASH = os.getenv("ADMIN_PASSWORD_HASH")
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# Grok / xAI client (OpenAI compatible). Explicit timeout + bounded transport retries.
-XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
-XAI_MODEL = jm.XAI_MODEL  # pinned via env XAI_MODEL (default "grok-4", the previous hard-coded value)
-grok_client = OpenAI(
-    api_key=XAI_API_KEY,
-    base_url="https://api.x.ai/v1",
-    timeout=jm.XAI_TIMEOUT_S,
-    max_retries=jm.XAI_MAX_RETRIES,
-) if XAI_API_KEY else None
 
 # Hermes integration access (key via `X-Hermes-Key` header or `?hermes_key=` query param)
 HERMES_API_KEY = os.getenv("HERMES_API_KEY")
@@ -126,123 +151,7 @@ def require_internal(request: Request, hermes_key: str = None) -> str:
 # No create_all in production code.
 
 
-# ===== JUDGMENT PERSISTENCE =====
-
-# One judgment per company at a time (per process; Render runs a single worker).
-_judging: set[int] = set()
-_judging_lock = threading.Lock()
-
-
-def _begin_judging(company_id: int) -> bool:
-    with _judging_lock:
-        if company_id in _judging:
-            return False
-        _judging.add(company_id)
-        return True
-
-
-def _end_judging(company_id: int) -> None:
-    with _judging_lock:
-        _judging.discard(company_id)
-
-
-def apply_judgment(db: Session, company_id: int, result: JudgmentResult, *, source: str,
-                   actor: str, suggestion_id: int = None) -> int:
-    """Atomically replace a company's scores with a validated judgment.
-    Real (non-placeholder) old rows are archived to score_history first.
-    Returns the number of archived rows. Rolls back on any error."""
-    try:
-        company = db.query(Company).filter(Company.id == company_id).with_for_update().one()
-        old = db.query(Score).filter(Score.company_id == company_id).all()
-        archived = 0
-        for s in old:
-            if is_placeholder(s) or s.score is None:
-                continue
-            db.add(ScoreHistory(
-                company_id=s.company_id, category=s.category, score=s.score,
-                justification=s.justification, evidence_links=s.evidence_links,
-                model=s.model, model_version=s.model_version, judged_at=s.judged_at,
-            ))
-            archived += 1
-        for s in old:
-            db.delete(s)
-        db.flush()
-        now = datetime.now(UTC)
-        model_id = result.meta.get("model") or XAI_MODEL
-        for item in result.items:
-            db.add(Score(
-                company_id=company_id,
-                category=item["category"],
-                score=item["score"],
-                justification=item["justification"],
-                evidence_links=item["evidence_links"],
-                model=model_id,
-                model_version=jm.PROMPT_VERSION,
-                judged_at=now,
-            ))
-        company.last_ingested_at = now
-        db.add(IngestLog(
-            company_id=company_id,
-            suggestion_id=suggestion_id,
-            action="judgment",
-            admin_id=actor,
-            details={**result.meta, "source": source, "scores_written": len(result.items),
-                     "archived_scores": archived},
-        ))
-        db.commit()
-        return archived
-    except Exception:
-        db.rollback()
-        raise
-
-
-def log_judge_error(db: Session, company_id: int, error: str, meta: dict, *, source: str,
-                    actor: str, suggestion_id: int = None) -> None:
-    try:
-        db.add(IngestLog(
-            company_id=company_id,
-            suggestion_id=suggestion_id,
-            action="judge_error",
-            admin_id=actor,
-            details={**(meta or {}), "error": str(error)[:1000], "company_id": company_id,
-                     "source": source, "existing_scores_untouched": True},
-        ))
-        db.commit()
-    except Exception:
-        db.rollback()
-
-
-async def judge_and_apply(db: Session, company: Company, *, source: str, actor: str,
-                          suggestion_id: int = None) -> dict:
-    """Run the blocking LLM judgment in a worker thread, then swap scores in on success.
-    On any failure existing scores are left exactly as they were."""
-    company_id, name, industry = company.id, company.canonical_name, company.industry
-    db.commit()  # end any open read transaction so no DB connection is held during the LLM call
-    if not _begin_judging(company_id):
-        return {"status": "already_running"}
-    try:
-        try:
-            result = await run_in_threadpool(jm.judge_company, grok_client, name, industry)
-        except JudgmentError as e:
-            log_judge_error(db, company_id, str(e), e.meta, source=source, actor=actor,
-                            suggestion_id=suggestion_id)
-            return {"status": "failed", "error": str(e)}
-        try:
-            archived = apply_judgment(db, company_id, result, source=source, actor=actor,
-                                      suggestion_id=suggestion_id)
-        except Exception as e:
-            log_judge_error(db, company_id, f"persist failed: {type(e).__name__}: {e}", result.meta,
-                            source=source, actor=actor, suggestion_id=suggestion_id)
-            return {"status": "failed", "error": "could not save judgment"}
-        return {
-            "status": "succeeded",
-            "model": result.meta.get("model"),
-            "duration_ms": result.meta.get("duration_ms"),
-            "archived_scores": archived,
-        }
-    finally:
-        _end_judging(company_id)
-
+# ===== JUDGMENT RUNS (v2 pipeline; executed by the in-process worker) =====
 
 def get_or_create_company(db: Session, canonical: str, domain: str = None) -> Company:
     company = db.query(Company).filter(Company.canonical_name == canonical).first()
@@ -262,35 +171,18 @@ def get_or_create_company(db: Session, canonical: str, domain: str = None) -> Co
 # ===== LEADERBOARD =====
 
 def get_leaderboard(db: Session, limit: int = 100, q: str = None):
-    """Returns (ranked, awaiting). Overall is computed in code from the five real dimensions;
-    placeholder rows and duplicates never affect the ranking."""
-    query = db.query(Company)
-    if q:
-        query = query.filter(
-            Company.canonical_name.ilike(f"%{q}%") |
-            Company.industry.ilike(f"%{q}%")
-        )
-    companies = query.all()
-    by_company = defaultdict(list)
-    ids = [c.id for c in companies]
-    if ids:
-        for s in db.query(Score).filter(Score.company_id.in_(ids)).all():
-            by_company[s.company_id].append(s)
-
-    ranked, awaiting = [], []
-    for c in companies:
-        summary = summarize_scores(by_company.get(c.id, []))
-        entry = {"company": c, "overall": summary["overall"], "scores": summary["scores"],
-                 "status": summary["status"]}
-        (ranked if summary["status"] == "ranked" else awaiting).append(entry)
-    ranked.sort(key=lambda e: (-e["overall"], e["company"].canonical_name or ""))
-    awaiting.sort(key=lambda e: e["company"].canonical_name or "")
-    return ranked[:limit], awaiting[:limit]
+    """Returns (ranked, awaiting). Ranked entities have a published v2 run that met the coverage
+    rules; their Index is computed in code (65% measured / 35% judged)."""
+    return runs_svc.leaderboard(db, limit=limit, q=q)
 
 
 def get_ranked_companies(db: Session, limit: int = 100, q: str = None):
     """Centralized leaderboard query logic (ranked entities only)."""
     return get_leaderboard(db, limit=limit, q=q)[0]
+
+
+def wants_html(request: Request) -> bool:
+    return "text/html" in request.headers.get("accept", "") and admin_from_session(request) is not None
 
 
 # ===== PUBLIC ROUTES =====
@@ -320,12 +212,16 @@ async def internal_stats(request: Request, hermes_key: str = None, db: Session =
     pending = db.query(Suggestion).filter(Suggestion.status == "pending").count()
     total_scores = db.query(Score).count()
     recent_logs = db.query(IngestLog).count()
+    run_counts = defaultdict(int)
+    for (st,) in db.query(JudgmentRun.status):
+        run_counts[st] += 1
 
     return {
         "companies": companies,
         "pending_suggestions": pending,
         "total_scores": total_scores,
         "total_logs": recent_logs,
+        "runs": dict(run_counts),
         "version": __version__
     }
 
@@ -352,7 +248,18 @@ async def internal_recent_judgments(request: Request, hermes_key: str = None, li
             "judged_at": score.judged_at.isoformat() if score.judged_at else None
         })
 
-    return {"recent_judgments": results}
+    runs = (db.query(JudgmentRun, Company).join(Company, Company.id == JudgmentRun.company_id)
+            .filter(JudgmentRun.finished_at.isnot(None))
+            .order_by(JudgmentRun.finished_at.desc()).limit(limit).all())
+    recent_runs = [{
+        "run_id": r.id, "company_id": c.id, "company": c.canonical_name, "status": r.status,
+        "index_score": r.index_score, "k_equivalent": r.k_equivalent, "confidence": r.confidence,
+        "ranked": r.ranked, "published": r.published, "cost_usd": r.cost_usd, "duration_ms": r.duration_ms,
+        "error_type": r.error_type, "finished_at": r.finished_at.isoformat(),
+    } for r, c in runs]
+
+    # recent_judgments: legacy v0 per-category scores (no longer written); recent_runs: v2 runs.
+    return {"recent_judgments": results, "recent_runs": recent_runs}
 
 
 @app.get("/internal/logs")
@@ -390,9 +297,9 @@ async def internal_approve_suggestion(
     hermes_key: str = None,
     db: Session = Depends(get_db)
 ):
-    """Approve + ingest a pending suggestion. Supports both web admin and Hermes.
-    Idempotent: the suggestion is claimed atomically, so a double-submit can't judge twice,
-    and approving a name that already exists re-judges that company instead of appending rows."""
+    """Approve a pending suggestion and queue a measurement run (returns immediately, 202).
+    Idempotent: the suggestion is claimed atomically, approving a name that already exists
+    queues a re-run for that company, and there is at most one active run per company."""
     approver = require_internal(request, hermes_key)
 
     claimed = (
@@ -409,26 +316,30 @@ async def internal_approve_suggestion(
     company = get_or_create_company(db, canonical, sug.domain)
 
     source = "web" if approver != "hermes" else "hermes"
-    outcome = await judge_and_apply(db, company, source=source, actor=approver,
-                                    suggestion_id=sug.id)
-
+    run, created = runs_svc.enqueue_run(db, company.id, trigger="approve", triggered_by=approver,
+                                        suggestion_id=sug.id)
     db.add(IngestLog(
         company_id=company.id,
         suggestion_id=sug.id,
         action="approve_ingest",
         admin_id=approver,
-        details={"source": source, "judgment": outcome["status"]}
+        details={"source": source, "run_id": run.id, "run_created": created}
     ))
     db.commit()
+    worker.wake()
 
-    return {
+    if wants_html(request):
+        return RedirectResponse("/admin#runs", status_code=303)
+    return JSONResponse(status_code=202, content={
         "status": "approved",
         "suggestion_id": suggestion_id,
         "company_id": company.id,
         "canonical_name": canonical,
         "approved_by": approver,
-        "judgment": outcome["status"],
-    }
+        "judgment": "queued" if created else f"already_{run.status}",
+        "run_id": run.id,
+        "run_url": f"/internal/runs/{run.id}",
+    })
 
 
 @app.post("/internal/deny/{suggestion_id}")
@@ -461,6 +372,8 @@ async def internal_deny_suggestion(
         details={"source": "web" if approver != "hermes" else "hermes", "reason": reason[:500]}
     ))
     db.commit()
+    if wants_html(request):
+        return RedirectResponse("/admin", status_code=303)
     return {"status": "denied", "suggestion_id": suggestion_id, "denied_by": approver,
             "reason": reason}
 
@@ -567,12 +480,16 @@ def find_duplicate_company(db: Session, name: str, domain: str = None, threshold
 @app.get("/")
 def public_leaderboard(request: Request, q: str = None, db: Session = Depends(get_db)):
     companies, awaiting = get_leaderboard(db, limit=100, q=q)
+    published = [e["run"].id for e in companies]
+    verified_sources = (db.query(Source).filter(Source.run_id.in_(published), Source.status == "ok").count()
+                        if published else 0)
     return templates.TemplateResponse(
         "index.html",
         {
             "request": request,
             "companies": companies,
             "awaiting": awaiting,
+            "verified_sources": verified_sources,
             "version": __version__,
             "q": q or ""
         }
@@ -584,20 +501,22 @@ def company_detail(company_id: int, request: Request, db: Session = Depends(get_
     company = db.get(Company, company_id)
     if not company:
         raise HTTPException(404, "Company not found")
-
-    scores = db.query(Score).filter(Score.company_id == company_id).all()
-    summary = summarize_scores(scores)
-
+    view = runs_svc.company_view(db, company)
     return templates.TemplateResponse(
         "company.html",
-        {
-            "request": request,
-            "company": company,
-            "scores": summary["scores"],
-            "overall": summary["overall"],
-            "judgment_status": summary["status"],
-            "version": __version__
-        }
+        {"request": request, "company": company, "v": view, "meth": meth, "version": __version__,
+         "cfg_cov": pipeline_settings().rank_min_coverage},
+    )
+
+
+@app.get("/methodology")
+def methodology_page(request: Request):
+    from .pipeline import prompts
+    cfg = pipeline_settings()
+    return templates.TemplateResponse(
+        "methodology.html",
+        {"request": request, "meth": meth, "prompt_version": prompts.PROMPT_VERSION, "cfg": cfg,
+         "version": __version__},
     )
 
 
@@ -674,12 +593,47 @@ def admin_logout(request: Request):
 
 @app.get("/admin")
 def admin_dashboard(request: Request, db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
-    # Simple admin dashboard - list pending suggestions
     pending = db.query(Suggestion).filter(Suggestion.status == "pending").all()
+    approved = db.query(Company).order_by(Company.last_ingested_at.desc()).limit(10).all()
+    logs = db.query(IngestLog).order_by(IngestLog.timestamp.desc()).limit(20).all()
+    high_attempt = db.query(Company).filter(Company.suggestion_attempts > 1).order_by(
+        Company.suggestion_attempts.desc()).limit(10).all()
     return templates.TemplateResponse(
         "admin.html",
-        {"request": request, "pending": pending, "admin": current_admin, "version": __version__}
+        {"request": request, "pending": pending, "admin": current_admin, "version": __version__,
+         "approved": approved, "logs": logs, "high_attempt": high_attempt,
+         "runs": runs_svc.admin_runs(db)}
     )
+
+
+@app.get("/admin/runs")
+def admin_runs_partial(request: Request, db: Session = Depends(get_db),
+                       current_admin: str = Depends(get_current_admin)):
+    """HTML fragment polled by the admin page while runs are active."""
+    return templates.TemplateResponse("partials/admin_runs.html",
+                                      {"request": request, "runs": runs_svc.admin_runs(db)})
+
+
+@app.get("/internal/runs/{run_id}")
+def internal_run_detail(run_id: int, request: Request, hermes_key: str = None, db: Session = Depends(get_db)):
+    require_internal(request, hermes_key)
+    run = db.get(JudgmentRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    return runs_svc.run_json(db, run)
+
+
+@app.get("/internal/runs")
+def internal_runs(request: Request, hermes_key: str = None, company_id: int = None, status: str = None,
+                  limit: int = 20, db: Session = Depends(get_db)):
+    require_internal(request, hermes_key)
+    q = db.query(JudgmentRun).order_by(JudgmentRun.id.desc())
+    if company_id is not None:
+        q = q.filter(JudgmentRun.company_id == company_id)
+    if status:
+        q = q.filter(JudgmentRun.status == status)
+    rows = q.limit(max(1, min(limit, 100))).all()
+    return {"runs": [runs_svc.run_json(db, r, stages=False, scores=False) for r in rows], "count": len(rows)}
 
 
 # ===== RERUN JUDGMENT (Admin + Hermes only) =====
@@ -691,37 +645,30 @@ async def rerun_judgment(
     hermes_key: str = None,
     db: Session = Depends(get_db)
 ):
-    """Re-judge a company. The new judgment is produced first and swapped in atomically
-    only if it validates; old real scores are archived to score_history. On failure the
-    existing scores are left untouched and a judge_error is logged."""
+    """Queue a fresh measurement run (202). The published data changes only if the new run
+    succeeds; failed runs never touch it. 409 if a run is already queued/running."""
     approver = require_internal(request, hermes_key)
 
     company = db.get(Company, company_id)
     if not company:
         raise HTTPException(404, "Company not found")
 
-    source = "web" if approver != "hermes" else "hermes"
-    outcome = await judge_and_apply(db, company, source=source, actor=approver)
-    if outcome["status"] == "already_running":
-        raise HTTPException(409, "A judgment for this company is already running")
+    run, created = runs_svc.enqueue_run(db, company_id, trigger="rerun", triggered_by=approver)
+    body = {"company_id": company_id, "canonical_name": company.canonical_name, "rerun_by": approver,
+            "run_id": run.id, "run_url": f"/internal/runs/{run.id}"}
+    if not created:
+        return JSONResponse(status_code=409, content={
+            **body, "status": "already_active", "run_status": run.status,
+            "detail": "A run for this company is already queued or running"})
 
     db.add(IngestLog(
         company_id=company_id,
         action="rerun_judgment",
         admin_id=approver,
-        details={"source": source, "judgment": outcome["status"]}
+        details={"source": "web" if approver != "hermes" else "hermes", "run_id": run.id}
     ))
     db.commit()
-
-    body = {
-        "company_id": company_id,
-        "canonical_name": company.canonical_name,
-        "rerun_by": approver,
-    }
-    if outcome["status"] != "succeeded":
-        return JSONResponse(status_code=502, content={
-            **body, "status": "rerun_failed", "error": outcome.get("error"),
-            "detail": "Existing scores were left untouched.",
-        })
-    return {**body, "status": "rerun_complete", "model": outcome.get("model"),
-            "duration_ms": outcome.get("duration_ms")}
+    worker.wake()
+    if wants_html(request):
+        return RedirectResponse("/admin#runs", status_code=303)
+    return JSONResponse(status_code=202, content={**body, "status": "rerun_queued"})

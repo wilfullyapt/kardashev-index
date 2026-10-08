@@ -19,6 +19,8 @@ services:
         sync: false
       - key: GROK_API_KEY
         sync: false
+      - key: SEC_EDGAR_USER_AGENT
+        sync: false
       - key: SECRET_KEY
         generateValue: true
     autoDeploy: true
