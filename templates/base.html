@@ -2,12 +2,12 @@
 {%- set path = request.url.path if request is defined and request else '/' -%}
 {%- set origin = (request.base_url|string).rstrip('/') if request is defined and request else '' -%}
 {%- if origin.startswith('http://') and not ('localhost' in origin or '127.0.0.1' in origin or 'testserver' in origin) -%}{%- set origin = 'https://' ~ origin[7:] -%}{%- endif -%}
-{%- set asset_v = "eacc-3" -%}
+{%- set asset_v = "eacc-4" -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>{% block title %}Kardashev Index — Joules, not vibes.{% endblock %}</title>
     <meta name="description" content="{% block description %}The Kardashev Index ranks companies by how hard they push civilization up the energy gradient. Mostly measured from reported energy, compute and growth; opinion labelled. Joules, not vibes.{% endblock %}">
     <meta name="theme-color" content="#050507">
