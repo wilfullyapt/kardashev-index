@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -435,3 +435,79 @@ def find_duplicate_company(db: Session, name: str, domain: str = None, threshold
 
 
 
+
+# ===== PUBLIC ROUTES =====
+
+@app.get("/")
+def public_leaderboard(request: Request, q: str = None, db: Session = Depends(get_db)):
+    companies = get_ranked_companies(db, limit=100, q=q)
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "companies": companies,
+            "version": __version__,
+            "q": q or ""
+        }
+    )
+
+
+@app.get("/companies/{company_id}")
+def company_detail(company_id: int, request: Request, db: Session = Depends(get_db)):
+    company = db.query(Company).get(company_id)
+    if not company:
+        raise HTTPException(404, "Company not found")
+
+    scores = db.query(Score).filter(Score.company_id == company_id).all()
+    score_dict = {s.category: s for s in scores}
+    overall = round(sum(s.score for s in scores) / len(scores), 1) if scores else 0.0
+
+    return templates.TemplateResponse(
+        "company.html",
+        {
+            "request": request,
+            "company": company,
+            "scores": score_dict,
+            "overall": overall,
+            "version": __version__
+        }
+    )
+
+
+@app.get("/suggest")
+def suggest_form(request: Request):
+    return templates.TemplateResponse("suggest.html", {"request": request, "version": __version__})
+
+
+@app.post("/suggest")
+def submit_suggestion(
+    request: Request,
+    name: str = Form(...),
+    domain: str = Form(None),
+    reason: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    # from fastapi import Form  (moved to top)
+    # Reuse existing suggestion logic (simplified for MVP)
+    norm = normalize_name(name)
+    dup = find_duplicate_company(db, name, domain)
+    if dup:
+        return templates.TemplateResponse(
+            "suggest.html",
+            {"request": request, "error": f"Company already exists: {dup.canonical_name}", "version": __version__}
+        )
+
+    suggestion = Suggestion(
+        canonical_name=name,
+        domain=domain,
+        reason=reason,
+        status="pending",
+        submitted_at=datetime.now(UTC)
+    )
+    db.add(suggestion)
+    db.commit()
+
+    return templates.TemplateResponse(
+        "suggest.html",
+        {"request": request, "success": "Thank you — your suggestion has been submitted for review.", "version": __version__}
+    )

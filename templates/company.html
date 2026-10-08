@@ -1,63 +1,43 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>{{ company.canonical_name }} — Kardashev Index</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="bg-zinc-950 text-zinc-200">
-    <div class="max-w-4xl mx-auto p-8">
-        <!-- Top bar with version -->
-        <div class="flex justify-between items-center mb-6">
-            <a href="/" class="text-emerald-400 text-sm">← Back to rankings</a>
-            <span class="px-3 py-1 text-xs font-mono bg-zinc-900 border border-zinc-800 rounded">{{ version }}</span>
-        </div>
+{% extends "base.html" %}
 
-        <h1 class="text-4xl font-bold mt-2">{{ company.canonical_name }}</h1>
-        <p class="text-zinc-400">{{ company.industry or '—' }} · {{ company.hq or '—' }}</p>
+{% block title %}{{ company.canonical_name }} — Kardashev Index{% endblock %}
 
-        <div class="mt-8">
-            <h2 class="text-xl mb-4">Current Scores</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {% for score in scores %}
-                <div class="bg-zinc-900 border border-zinc-800 p-6 rounded">
-                    <div class="flex justify-between">
-                        <div class="font-semibold">{{ score.category.replace('_', ' ').title() }}</div>
-                        <div class="text-3xl font-mono text-emerald-400">{{ '%.1f'|format(score.score) }}</div>
-                    </div>
-                    <div class="mt-4 text-sm text-zinc-400">{{ score.justification }}</div>
-                    {% if score.evidence_links %}
-                    <div class="mt-3 text-xs">
-                        {% for link in score.evidence_links %}
-                        <a href="{{ link }}" class="text-emerald-400 hover:underline block">{{ link }}</a>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-                    <div class="text-[10px] text-zinc-500 mt-4">Judged {{ score.judged_at.strftime('%Y-%m-%d') }} · {{ score.model }} {{ score.model_version }}</div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-
-        {% if history %}
-        <div class="mt-12">
-            <h2 class="text-xl mb-4">Score History</h2>
-            <div class="space-y-4">
-                {% for h in history %}
-                <div class="bg-zinc-900 border border-zinc-800 p-4 rounded text-sm">
-                    <div class="flex justify-between">
-                        <span class="font-mono">{{ h.category }}</span>
-                        <span class="font-mono text-emerald-400">{{ '%.1f'|format(h.score) }}</span>
-                    </div>
-                    <div class="text-zinc-400 mt-1">{{ h.justification }}</div>
-                    <div class="text-[10px] text-zinc-500 mt-2">
-                        Judged {{ h.judged_at.strftime('%Y-%m-%d') if h.judged_at else '—' }} · Archived {{ h.archived_at.strftime('%Y-%m-%d %H:%M') }} · {{ h.model }} {{ h.model_version }}
-                    </div>
-                </div>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
+{% block content %}
+    <div class="mb-8">
+        <a href="/" class="text-sm text-zinc-400 hover:text-white">← Back to leaderboard</a>
     </div>
-</body>
-</html>
+
+    <div class="flex items-start justify-between mb-8">
+        <div>
+            <h1 class="text-4xl font-bold">{{ company.canonical_name }}</h1>
+            <p class="text-zinc-400 mt-1">{{ company.industry or '—' }}</p>
+        </div>
+        <div class="text-right">
+            <div class="text-5xl font-mono text-emerald-400">{{ overall }}</div>
+            <div class="text-xs text-zinc-500">Overall Score</div>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {% for cat, score in scores.items() %}
+        <div class="bg-zinc-900 border border-zinc-800 rounded p-5">
+            <div class="flex justify-between items-center mb-3">
+                <div class="font-medium">{{ cat.replace('_', ' ').title() }}</div>
+                <div class="font-mono text-2xl text-emerald-400">{{ '%.1f'|format(score.score) }}</div>
+            </div>
+            <p class="text-sm text-zinc-400">{{ score.justification or 'No justification provided.' }}</p>
+            {% if score.evidence_links %}
+            <div class="mt-3 text-xs">
+                {% for link in score.evidence_links %}
+                <a href="{{ link }}" target="_blank" class="text-emerald-500 hover:underline block truncate">{{ link }}</a>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="mt-10 text-xs text-zinc-500">
+        Last updated: {{ company.last_ingested_at.strftime('%Y-%m-%d') if company.last_ingested_at else '—' }}
+    </div>
+{% endblock %}
