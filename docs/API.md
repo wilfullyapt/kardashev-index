@@ -80,6 +80,31 @@ key), `interrupted` (worker died twice mid-run), or `internal_error`.
 `published: false` with `summary.publish_note` means the run succeeded but did not replace the
 current (ranked) run because it was not itself ranked.
 
+## Admin and public views (v0.2.1)
+
+Admin pages need the admin session. Browsers that aren't logged in are redirected to
+`/admin/login?next=…`; non-HTML clients get `401`. None of these pages are linked from the public site,
+and all of them send `noindex`.
+
+| Page | What it shows |
+|---|---|
+| `GET /admin` | pending suggestions, latest runs (live), every company with its current/last run, run count and a **Re-run** button, activity log |
+| `GET /admin/runs?company_id=&status=&page=` | every run, newest first, 25 per page; filters by company and status; refreshes itself while a run is queued/running |
+| `GET /admin/runs/{id}` | one run: queued/started/finished (Pacific) and duration, queue wait, attempt/worker, pipeline/prompt/rubric/weights versions, prompt bundle hash, **code version**, model requested/returned, cost vs budget, tokens, searches, per-stage timings/tokens/cost/errors/detail JSON, category scores, every source (including rejected ones and why); re-run button; polls every 3 s while active |
+
+Re-run from an admin form asks for confirmation (paid API). It then redirects to the new run's page with a flash
+message. If a run is already active, the form redirects to that run instead of a 409. The JSON API keeps the 409.
+`judgment_runs.code_version` (migration 0003) records `RENDER_GIT_COMMIT` (or `GIT_COMMIT`) at run start.
+
+Public history (published runs only; failed or unpublished runs, costs, tokens and prompts are never shown):
+
+| URL | |
+|---|---|
+| `GET /companies/{id}` | current dossier + run history table (N, N-1, …), Index/K sparklines, per-category Δ vs the previous run |
+| `GET /companies/{id}/runs/{n}` | read-only dossier of the n-th published run (stable ordinal, 1 = first). The current run redirects to `/companies/{id}` |
+| `GET /companies/{id}?run=N-2` | resolves a relative label to the stable URL (302) |
+| `GET /companies/{id}/runs/v0` | legacy v0 single-prompt scores, labelled superseded (only when real legacy scores exist) |
+
 ## Unchanged
 
 `/internal/health`, `/internal/logs` (new actions: `judgment_run`, `judge_error`),

@@ -29,6 +29,10 @@ returns immediately. Every run, stage (timings, tokens, cost), source, quote and
 stored; history is never overwritten. Each run has a hard budget (`JUDGE_MAX_COST_USD`, default
 $0.40).
 
+Each company page keeps its full public history: every published run is labelled relative to the
+current one (N, N-1, …) and has a read-only dossier, a trend line and per-category deltas. Admins get a
+runs list and a per-run detail view with versions, code commit, timings, cost and errors (see `docs/API.md`).
+
 Code: `app/pipeline/` (`methodology.py` holds weights, anchors and rubrics; `measures.py` the
 math), `app/worker.py`, `app/runs.py`. Internal API: [`docs/API.md`](docs/API.md).
 
