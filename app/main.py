@@ -498,7 +498,7 @@ def submit_suggestion(
         )
 
     suggestion = Suggestion(
-        canonical_name=name,
+        name=name,
         domain=domain,
         reason=reason,
         status="pending",
