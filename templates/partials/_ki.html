@@ -1,0 +1,57 @@
+{#- Shared presentation helpers for the Kardashev Index. Pure display logic; no data is invented here. -#}
+
+{%- set CAT_ORDER = ["ai_tech_acceleration", "energy_kardashev", "market_competition", "regulatory_stance", "builder_culture", "overall"] -%}
+{%- set CAT_META = {
+  "ai_tech_acceleration": {"label": "AI & Tech Acceleration", "short": "AI", "k": "Compute"},
+  "energy_kardashev":     {"label": "Energy & Kardashev",     "short": "Energy", "k": "Joules"},
+  "market_competition":   {"label": "Market Competition",     "short": "Market", "k": "Markets"},
+  "regulatory_stance":    {"label": "Regulatory Stance",      "short": "Policy", "k": "Policy"},
+  "builder_culture":      {"label": "Builder Culture",        "short": "Build", "k": "Builders"},
+  "overall":              {"label": "Judge's Overall Read",   "short": "Judge", "k": "Synthesis"}
+} -%}
+
+{%- macro cat_label(cat) -%}{{ CAT_META[cat].label if cat in CAT_META else cat.replace('_', ' ').title() }}{%- endmacro -%}
+{%- macro cat_short(cat) -%}{{ CAT_META[cat].short if cat in CAT_META else cat.replace('_', ' ').title() }}{%- endmacro -%}
+{%- macro cat_kicker(cat) -%}{{ CAT_META[cat].k if cat in CAT_META else "Category" }}{%- endmacro -%}
+
+{#- Qualitative band for a 0–10 score. Purely a label on the existing number. -#}
+{%- macro band(score, pending=false) -%}
+  {%- if pending -%}<span class="band band--pending">Awaiting judgment</span>
+  {%- elif score >= 8 -%}<span class="band band--accel">Accelerating</span>
+  {%- elif score >= 6 -%}<span class="band band--climb">Climbing</span>
+  {%- elif score >= 4 -%}<span class="band band--hold">Holding</span>
+  {%- else -%}<span class="band band--decel">Decelerating</span>
+  {%- endif -%}
+{%- endmacro -%}
+
+{%- macro bar(score, pending=false, label=none) -%}
+  {%- set s = [[score or 0, 0]|max, 10]|min -%}
+  <span class="bar{{ ' bar--pending' if pending }}" role="img" aria-label="{{ label ~ ': ' if label }}{{ '%.1f'|format(s) }} out of 10"><span class="bar__fill" style="--s: {{ '%.2f'|format(s) }}"></span></span>
+{%- endmacro -%}
+
+{%- macro mark(cls="brand__mark") -%}
+<svg class="{{ cls }}" viewBox="0 0 64 64" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="kmg-{{ cls }}" x1="9" y1="52" x2="52" y2="11" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9f7250"/><stop offset=".55" stop-color="#ddac67"/><stop offset="1" stop-color="#f38404"/></linearGradient>
+    <radialGradient id="kms-{{ cls }}" cx="52" cy="11" r="9" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff6e6"/><stop offset=".45" stop-color="#eeb072"/><stop offset="1" stop-color="#f38404" stop-opacity="0"/></radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="25" stroke="#c69667" stroke-opacity=".55" stroke-width="1.5"/>
+  <path d="M7 32h50" stroke="#c69667" stroke-opacity=".28"/>
+  <path d="M9 52 L11.15 51.77 L13.3 51.5 L15.45 51.18 L17.6 50.79 L19.75 50.32 L21.9 49.76 L24.05 49.09 L26.2 48.29 L28.35 47.33 L30.5 46.18 L32.65 44.81 L34.8 43.16 L36.95 41.2 L39.1 38.84 L41.25 36.01 L43.4 32.63 L45.55 28.59 L47.7 23.74 L49.85 17.94 L52 11" stroke="url(#kmg-{{ cls }})" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="52" cy="11" r="9" fill="url(#kms-{{ cls }})"/>
+  <circle cx="52" cy="11" r="2.6" fill="#fff6e6"/>
+</svg>
+{%- endmacro -%}
+
+{#- Bronze torch for rank #1 — fire carried upward. -#}
+{%- macro torch() -%}
+<svg class="rank__torch" viewBox="0 0 16 20" aria-hidden="true">
+  <defs><radialGradient id="tf" cx="8" cy="5.5" r="5.5" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#fff3dc"/><stop offset=".5" stop-color="#f38404"/><stop offset="1" stop-color="#d55903" stop-opacity="0"/></radialGradient></defs>
+  <circle cx="8" cy="5.5" r="5.5" fill="url(#tf)"/>
+  <path d="M8 1.2c1.6 2 2.4 3.4 1.6 5-.3.7-1 1.1-1.6 1.1S6.7 6.9 6.4 6.2c-.5-1.1 0-2.1.6-3 .2.8.6 1.2 1 1.3-.3-1-.2-2 0-3.3z" fill="#fff1d6"/>
+  <path d="M5 8.2h6l-1.4 2.4H6.4z" fill="#ddac67"/>
+  <path d="M6.5 10.6h3L8.8 19H7.2z" fill="#9f7250"/>
+</svg>
+{%- endmacro -%}
+
+{%- macro pretty(url) -%}{%- set u = (url or '').split('//', 1)[-1] -%}{{ (u[4:] if u.startswith('www.') else u).rstrip('/') }}{%- endmacro -%}

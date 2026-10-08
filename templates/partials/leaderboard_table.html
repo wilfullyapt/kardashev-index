@@ -1,0 +1,63 @@
+{%- import "partials/_ki.html" as ki -%}
+{%- set board_cats = ["ai_tech_acceleration", "energy_kardashev", "market_competition", "regulatory_stance", "builder_culture"] -%}
+<div id="leaderboard-table" class="board">
+    {% if companies %}
+    <table class="board-table">
+        <caption class="sr-only">Companies ranked by overall e/acc alignment score, 0 to 10</caption>
+        <thead>
+            <tr>
+                <th scope="col" class="col-rank">Rank</th>
+                <th scope="col">Entity</th>
+                {% for cat in board_cats %}<th scope="col" class="col-cat num">{{ ki.cat_short(cat) }}</th>{% endfor %}
+                <th scope="col" class="col-overall num">Overall</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in companies %}
+            {%- set pending = (item.scores.values()|selectattr('model', 'equalto', 'stub')|list|length) > 0 -%}
+            <tr>
+                <td class="col-rank">
+                    <span class="rank{% if loop.first and not q %} rank--1{% endif %}">
+                        {%- if loop.first and not q and not pending %}{{ ki.torch() }}{% endif -%}
+                        {{ '%02d'|format(loop.index) }}
+                    </span>
+                </td>
+                <td>
+                    <div class="entity">
+                        <a href="/companies/{{ item.company.id }}" class="entity__name">{{ item.company.canonical_name }}</a>
+                        <span class="entity__ind">{{ item.company.industry or 'Industry unlisted' }}</span>
+                    </div>
+                </td>
+                {% for cat in board_cats %}
+                <td class="col-cat">
+                    {% if cat in item.scores %}
+                    <div class="minibar">
+                        <span class="minibar__v">{{ '%.1f'|format(item.scores[cat].score) }}</span>
+                        {{ ki.bar(item.scores[cat].score, pending, ki.cat_label(cat)) }}
+                    </div>
+                    {% else %}<div class="minibar"><span class="minibar__v dim">—</span></div>{% endif %}
+                </td>
+                {% endfor %}
+                <td class="col-overall">
+                    <div class="overall">
+                        {{ ki.band(item.overall, pending) }}
+                        <span class="overall__v">{{ item.overall }}<small>/10</small></span>
+                        {{ ki.bar(item.overall, pending, 'Overall') }}
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <div class="board-empty">
+        {% if q %}
+        <p class="h3">Nothing on the board matches “{{ q }}”.</p>
+        <p class="muted" style="margin:0">Try another name or industry — or <a href="/suggest">suggest it</a> for review.</p>
+        {% else %}
+        <p class="h3">The board is waiting for its first builders.</p>
+        <p class="muted" style="margin:0"><a href="/suggest">Suggest a company</a> to get the climb started.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>

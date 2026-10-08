@@ -1,6 +1,8 @@
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from starlette.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
 import os
@@ -19,7 +21,7 @@ __version__ = "v0.1"
 
 app = FastAPI(title="Kardashev Index")
 templates = Jinja2Templates(directory="templates")
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="static")
 
 # Admin auth
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL")

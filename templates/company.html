@@ -1,43 +1,98 @@
 {% extends "base.html" %}
 
 {% block title %}{{ company.canonical_name }} — Kardashev Index{% endblock %}
+{% block description %}{{ company.canonical_name }} on the Kardashev Index: overall e/acc alignment {{ overall }}/10, scored across AI acceleration, energy, competition, regulation, and builder culture.{% endblock %}
 
 {% block content %}
-    <div class="mb-8">
-        <a href="/" class="text-sm text-zinc-400 hover:text-white">← Back to leaderboard</a>
-    </div>
+{%- set cats = ki.CAT_ORDER|select('in', scores)|list + scores.keys()|reject('in', ki.CAT_ORDER)|list -%}
+{%- set pending = (scores.values()|selectattr('model', 'equalto', 'stub')|list|length) > 0 -%}
+{%- set circ = 314.16 -%}
+{%- set frac = ([[overall or 0, 0]|max, 10]|min) / 10 -%}
 
-    <div class="flex items-start justify-between mb-8">
+    <a href="/" class="crumb"><span aria-hidden="true">←</span> The leaderboard</a>
+
+    <section class="dossier" aria-labelledby="co-name">
         <div>
-            <h1 class="text-4xl font-bold">{{ company.canonical_name }}</h1>
-            <p class="text-zinc-400 mt-1">{{ company.industry or '—' }}</p>
+            <p class="eyebrow">Entity dossier · Nº {{ '%03d'|format(company.id) }}</p>
+            <h1 id="co-name" class="dossier__name">{{ company.canonical_name }}</h1>
+            <div class="dossier__meta">
+                <span class="chip">{{ company.industry or 'Industry unlisted' }}</span>
+                {% if company.domain %}<a class="chip" href="https://{{ company.domain }}" rel="noopener nofollow" target="_blank">{{ company.domain }} ↗</a>{% endif %}
+                {% if company.hq %}<span class="chip">{{ company.hq }}</span>{% endif %}
+                {% if company.wikipedia_url %}<a class="chip" href="{{ company.wikipedia_url }}" rel="noopener nofollow" target="_blank">Wikipedia ↗</a>{% endif %}
+            </div>
         </div>
-        <div class="text-right">
-            <div class="text-5xl font-mono text-emerald-400">{{ overall }}</div>
-            <div class="text-xs text-zinc-500">Overall Score</div>
+        <div class="dossier__score">
+            <div class="gauge" role="img" aria-label="Overall score {{ overall }} out of 10">
+                <svg viewBox="0 0 120 120" aria-hidden="true">
+                    <defs>
+                        <linearGradient id="gaugeGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9f7250"/><stop offset=".55" stop-color="#ddac67"/><stop offset="1" stop-color="#f38404"/></linearGradient>
+                    </defs>
+                    <circle class="gauge__track" cx="60" cy="60" r="50"/>
+                    <circle class="gauge__ticks" cx="60" cy="60" r="50" style="stroke-width:3;opacity:.6"/>
+                    <circle class="gauge__arc{{ ' gauge__arc--pending' if pending }}" cx="60" cy="60" r="50" stroke-dasharray="{{ '%.2f'|format(frac * circ) }} {{ circ }}"/>
+                </svg>
+                <div class="gauge__center">
+                    <span class="gauge__v">{{ overall }}</span>
+                    <span class="gauge__k">Overall / 10</span>
+                </div>
+            </div>
+            {{ ki.band(overall, pending) }}
         </div>
-    </div>
+    </section>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-        {% for cat, score in scores.items() %}
-        <div class="bg-zinc-900 border border-zinc-800 rounded p-5">
-            <div class="flex justify-between items-center mb-3">
-                <div class="font-medium">{{ cat.replace('_', ' ').title() }}</div>
-                <div class="font-mono text-2xl text-emerald-400">{{ '%.1f'|format(score.score) }}</div>
-            </div>
-            <p class="text-sm text-zinc-400">{{ score.justification or 'No justification provided.' }}</p>
-            {% if score.evidence_links %}
-            <div class="mt-3 text-xs">
-                {% for link in score.evidence_links %}
-                <a href="{{ link }}" target="_blank" class="text-emerald-500 hover:underline block truncate">{{ link }}</a>
-                {% endfor %}
-            </div>
-            {% endif %}
+    {% if pending %}
+    <div class="notice" role="note">
+        <span aria-hidden="true">◌</span>
+        <span><strong>Awaiting full judgment.</strong> These are placeholder scores, set at the midpoint until the judge runs with evidence. Treat them as unranked.</span>
+    </div>
+    {% endif %}
+
+    {% if cats %}
+    <section class="profile" aria-label="Gradient profile">
+        <p class="eyebrow eyebrow--plain" style="margin-bottom:.25rem">Gradient profile</p>
+        {% for cat in cats %}
+        <div class="profile__row">
+            <span class="profile__label">{{ ki.cat_label(cat) }}</span>
+            {{ ki.bar(scores[cat].score, pending, ki.cat_label(cat)) }}
+            <span class="profile__v">{{ '%.1f'|format(scores[cat].score) }}</span>
         </div>
         {% endfor %}
-    </div>
+    </section>
 
-    <div class="mt-10 text-xs text-zinc-500">
-        Last updated: {{ company.last_ingested_at.strftime('%Y-%m-%d') if company.last_ingested_at else '—' }}
+    <div class="cards">
+        {% for cat in cats %}
+        {%- set score = scores[cat] -%}
+        <article class="card" aria-labelledby="c-{{ cat }}">
+            <div class="card__head">
+                <div>
+                    <p class="card__k">{{ ki.cat_kicker(cat) }}</p>
+                    <h2 id="c-{{ cat }}" class="card__title">{{ ki.cat_label(cat) }}</h2>
+                </div>
+                <div class="card__v">{{ '%.1f'|format(score.score) }}<small>/ 10</small></div>
+            </div>
+            {{ ki.bar(score.score, pending, ki.cat_label(cat)) }}
+            <p class="card__body{{ ' card__body--pending' if score.model == 'stub' }}">{{ score.justification or 'No justification provided.' }}</p>
+            {% if score.evidence_links %}
+            <ul class="evidence">
+                <li class="evidence__k">Evidence</li>
+                {% for link in score.evidence_links %}
+                <li><a href="{{ link }}" target="_blank" rel="noopener nofollow"><span class="evidence__i">{{ '%02d'|format(loop.index) }}</span><span>{{ ki.pretty(link) }}</span></a></li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+            {% if score.model and score.model != 'stub' %}
+            <div class="card__foot">Judged by {{ score.model }}{% if score.judged_at %} · {{ score.judged_at.strftime('%Y-%m-%d') }}{% endif %}</div>
+            {% endif %}
+        </article>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>No scores yet.</strong> This entity hasn’t been judged.</span></div>
+    {% endif %}
+
+    <div class="meta-line">
+        <span>Last updated {{ company.last_ingested_at.strftime('%Y-%m-%d') if company.last_ingested_at else '—' }}</span>
+        <span>Overall = mean of all judged dimensions</span>
     </div>
 {% endblock %}

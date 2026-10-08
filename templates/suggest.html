@@ -3,24 +3,35 @@
 {% block title %}Suggest a Company — Kardashev Index{% endblock %}
 
 {% block content %}
-    <div class="max-w-xl">
-        <h1 class="text-3xl font-bold mb-2">Suggest a Company</h1>
-        <p class="text-zinc-400 mb-8">All suggestions are human-reviewed before appearing on the public leaderboard.</p>
-
-        <form method="post" class="space-y-4">
-            <div>
-                <label class="block text-sm mb-1">Company Name</label>
-                <input type="text" name="name" required class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded">
-            </div>
-            <div>
-                <label class="block text-sm mb-1">Domain (optional)</label>
-                <input type="text" name="domain" placeholder="example.com" class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded">
-            </div>
-            <div>
-                <label class="block text-sm mb-1">Why should this company be included?</label>
-                <textarea name="reason" rows="4" class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded"></textarea>
-            </div>
-            <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 px-6 py-2 rounded">Submit Suggestion</button>
-        </form>
+<div class="split">
+    <div>
+        <p class="eyebrow">Suggest an entity</p>
+        <h1 class="display" style="font-size:var(--step-4);margin-bottom:1.25rem">Nominate a builder for&nbsp;the&nbsp;climb.</h1>
+        <p class="lede muted">All suggestions are human-reviewed before appearing on the public leaderboard. Approved entities are judged on six dimensions, with evidence.</p>
+        <ul class="criteria">
+            <li><span class="mono">01</span><span><b>AI &amp; tech acceleration</b> — pushing the frontier of compute and capability.</span></li>
+            <li><span class="mono">02</span><span><b>Energy &amp; Kardashev</b> — generating, moving, or multiplying usable power.</span></li>
+            <li><span class="mono">03</span><span><b>Market competition</b> — winning in open markets.</span></li>
+            <li><span class="mono">04</span><span><b>Regulatory stance</b> — posture toward rules that speed or slow progress.</span></li>
+            <li><span class="mono">05</span><span><b>Builder culture</b> — shipping velocity and engineering ambition.</span></li>
+        </ul>
     </div>
+
+    <form method="post" class="panel stack">
+        <div class="field">
+            <label class="label" for="s-name">Company name</label>
+            <input id="s-name" type="text" name="name" required class="input" autocomplete="organization" placeholder="e.g. a fusion startup, a chip fab, a launch company">
+        </div>
+        <div class="field">
+            <label class="label" for="s-domain">Domain <span class="opt">(optional)</span></label>
+            <input id="s-domain" type="text" name="domain" placeholder="example.com" class="input" inputmode="url" autocapitalize="off" spellcheck="false">
+        </div>
+        <div class="field">
+            <label class="label" for="s-reason">Why should this company be included? <span class="opt">(optional)</span></label>
+            <textarea id="s-reason" name="reason" rows="4" class="input" placeholder="What are they building? What does it do to the energy and compute curve?"></textarea>
+        </div>
+        <button type="submit" class="btn">Submit suggestion <span class="btn__arrow" aria-hidden="true">→</span></button>
+        <p class="hint">Duplicates are detected automatically. Nothing is published without review.</p>
+    </form>
+</div>
 {% endblock %}
