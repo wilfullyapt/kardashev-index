@@ -42,6 +42,12 @@
     </div>
 </section>
 
+<section class="admin-sec" id="runs">
+    <p class="eyebrow">Measurement runs · live</p>
+    {% include "partials/admin_runs.html" %}
+    <p class="hint">● = published · nr = not ranked (insufficient data). Run JSON: <span class="mono">/internal/runs/&lt;id&gt;</span>.</p>
+</section>
+
 <section class="admin-sec">
     <p class="eyebrow">High duplicate attempts · popularity signal</p>
     <div class="table-scroll">
@@ -63,15 +69,16 @@
 </section>
 
 <section class="admin-sec">
-    <p class="eyebrow">Recently approved</p>
+    <p class="eyebrow">Companies · re-run a measurement (uses the paid API, ~$0.15–0.40)</p>
     <div class="table-scroll">
     <table class="data-table">
-        <thead><tr><th>Company</th><th>Last ingested</th></tr></thead>
+        <thead><tr><th>Company</th><th>Last published</th><th></th></tr></thead>
         <tbody>
             {% for c in approved %}
-            <tr><td>{{ c.canonical_name }}</td><td class="mono dim">{{ c.last_ingested_at }}</td></tr>
+            <tr><td><a href="/companies/{{ c.id }}">{{ c.canonical_name }}</a></td><td class="mono dim">{{ c.last_ingested_at.strftime('%Y-%m-%d %H:%M') if c.last_ingested_at else '—' }}</td>
+                <td><form action="/internal/rerun-judgment/{{ c.id }}" method="post" style="margin:0"><button class="btn btn--sm btn--ghost">Re-run</button></form></td></tr>
             {% else %}
-            <tr><td colspan="2" class="empty">Nothing approved recently.</td></tr>
+            <tr><td colspan="3" class="empty">Nothing approved recently.</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -98,5 +105,5 @@
     </div>
 </section>
 
-<p class="hint">Denials are recorded with reason. All ingestion is admin-gated.</p>
+<p class="hint">Denials are recorded with reason. Approving queues a measurement run; it executes in the background.</p>
 {% endblock %}

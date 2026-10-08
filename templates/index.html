@@ -3,8 +3,6 @@
 {% block title %}Kardashev Index — Joules, not vibes.{% endblock %}
 
 {% block hero %}
-{%- set ns = namespace(links=0) -%}
-{%- for item in companies -%}{%- for s in item.scores.values() -%}{%- set ns.links = ns.links + (s.evidence_links|length if s.evidence_links else 0) -%}{%- endfor -%}{%- endfor -%}
 <section class="hero" aria-labelledby="hero-title">
     <div class="hero__art" aria-hidden="true">
         <img src="/static/img/hero-star.svg?v=eacc-1" alt="" width="1600" height="900" fetchpriority="high">
@@ -14,15 +12,15 @@
             <p class="eyebrow">Thermodynamic ranking of companies in Kardashev terms</p>
             <h1 id="hero-title" class="display">Civilization climbs on the energy it&nbsp;can&nbsp;harness.</h1>
             <p class="thesis">Joules, not vibes.</p>
-            <p class="lede">The Kardashev Index ranks the companies pushing humanity up the gradient — in compute, in energy, in open competition, in the will to build. Every score is argued from cited evidence. Every entry is human-reviewed.</p>
+            <p class="lede">The Kardashev Index ranks the companies pushing humanity up the gradient. Most of every score is measured: reported energy, compute and growth, converted to watts in code from documents we fetch and verify ourselves. The rest is clearly labelled opinion, argued only from verified quotes.</p>
             <div class="hero__actions">
                 <a href="#leaderboard" class="btn">See the leaderboard <span class="btn__arrow" aria-hidden="true">→</span></a>
-                <a href="#manifesto" class="btn btn--ghost">Why joules</a>
+                <a href="/methodology" class="btn btn--ghost">How it’s measured</a>
             </div>
             <div class="hero__foot">
                 <div class="stat"><span class="stat__v">{{ '%02d'|format(companies|length) }}</span><span class="stat__k">Entities ranked</span></div>
-                <div class="stat"><span class="stat__v">05</span><span class="stat__k">Scored dimensions</span></div>
-                <div class="stat"><span class="stat__v">{{ '%02d'|format(ns.links) }}</span><span class="stat__k">Evidence links cited</span></div>
+                <div class="stat"><span class="stat__v">65%</span><span class="stat__k">Measured weight</span></div>
+                <div class="stat"><span class="stat__v">{{ '%02d'|format(verified_sources|default(0)) }}</span><span class="stat__k">Verified sources</span></div>
             </div>
         </div>
     </div>
@@ -37,7 +35,7 @@
             <div>
                 <p class="eyebrow">The Leaderboard</p>
                 <h2 id="lb-title" class="h2">Who is moving us <em>up the curve</em>.</h2>
-                <p class="muted" style="margin:0;max-width:36rem">Ranked by the mean of five judged dimensions, 0–10. Higher means more fuel on the fire.</p>
+                <p class="muted" style="margin:0;max-width:36rem">Kardashev Index, 0–10: 65% measured from reported energy, compute and growth; 35% labelled opinion. Higher means more fuel on the fire.</p>
             </div>
             <form class="search" action="/" method="get" role="search">
                 <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.75" stroke="currentColor" stroke-width="1.5"/><path d="m13 13 4.5 4.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
@@ -52,7 +50,7 @@
 
         <div class="board-note">
             <span>Bands — <span class="band band--accel">Accelerating</span> 8+ · <span class="band band--climb">Climbing</span> 6+ · <span class="band band--hold">Holding</span> 4+ · <span class="band band--decel">Decelerating</span> &lt;4</span>
-            <span>Scores are model-judged against public evidence, then human-reviewed.</span>
+            <span>Measured figures are computed in code from sources we fetched; opinion is model-judged against <a href="/methodology">written rubrics</a>. Entities are admin-approved; scores are never hand-edited.</span>
         </div>
     </div>
 </section>
@@ -76,14 +74,14 @@
                 <span class="tenet__n" aria-hidden="true">II</span>
                 <div>
                     <h3 class="tenet__t">Measure, don’t emote.</h3>
-                    <p>Each score carries a written justification and links to its sources. Disagree with the evidence, not the mood. Vibes are not data.</p>
+                    <p>Figures come from documents we fetch ourselves, with the verbatim quote that states them. Dead links and quotes we can’t find are thrown out. Disagree with the evidence, not the mood. Vibes are not data.</p>
                 </div>
             </li>
             <li class="tenet">
                 <span class="tenet__n" aria-hidden="true">III</span>
                 <div>
                     <h3 class="tenet__t">The gradient points up.</h3>
-                    <p>Compute, energy, open markets, permission to build, a culture that ships — five forces that move us toward a planet’s worth of power, then a star’s. The light is worth climbing toward.</p>
+                    <p>Energy harnessed, compute built, growth compounding — then the frontier pushed, the speed of building, the permission to build. Forces that move us toward a planet’s worth of power, then a star’s. The light is worth climbing toward.</p>
                 </div>
             </li>
         </ol>
@@ -143,7 +141,7 @@
         <div>
             <p class="eyebrow">Add to the board</p>
             <h2 id="cta-title" class="h2">Know a builder the index is missing?</h2>
-            <p class="muted" style="margin:0">Suggestions are reviewed by admins before anything appears. No scraping, no autopilot.</p>
+            <p class="muted" style="margin:0">Suggestions are reviewed by admins before anything is measured or published.</p>
         </div>
         <form action="/suggest" method="post" class="stack">
             <div class="inline-form">

@@ -2,14 +2,14 @@
 {%- set path = request.url.path if request is defined and request else '/' -%}
 {%- set origin = (request.base_url|string).rstrip('/') if request is defined and request else '' -%}
 {%- if origin.startswith('http://') and not ('localhost' in origin or '127.0.0.1' in origin or 'testserver' in origin) -%}{%- set origin = 'https://' ~ origin[7:] -%}{%- endif -%}
-{%- set asset_v = "eacc-2" -%}
+{%- set asset_v = "eacc-3" -%}
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Kardashev Index — Joules, not vibes.{% endblock %}</title>
-    <meta name="description" content="{% block description %}The Kardashev Index ranks companies by how hard they push civilization up the energy gradient. Evidence-cited, human-reviewed. Joules, not vibes.{% endblock %}">
+    <meta name="description" content="{% block description %}The Kardashev Index ranks companies by how hard they push civilization up the energy gradient. Mostly measured from reported energy, compute and growth; opinion labelled. Joules, not vibes.{% endblock %}">
     <meta name="theme-color" content="#050507">
     <meta name="color-scheme" content="dark">
 
@@ -49,7 +49,8 @@
                 </span>
             </a>
             <nav class="nav__links" aria-label="Primary">
-                <a href="/" class="nav__link"{% if path == '/' %} aria-current="page"{% endif %}>Leaderboard</a>
+                <a href="/" class="nav__link"{% if path == '/' %} aria-current="page"{% endif %}><span class="nav__long">Leaderboard</span><span class="nav__short">Board</span></a>
+                <a href="/methodology" class="nav__link"{% if path.startswith('/methodology') %} aria-current="page"{% endif %}>Method</a>
                 <a href="/#manifesto" class="nav__link nav__link--opt">Manifesto</a>
                 <a href="/suggest" class="nav__link"{% if path.startswith('/suggest') %} aria-current="page"{% endif %}>Suggest</a>
                 <a href="/health" class="chip nav__meta" title="Service status"><span class="chip__dot" aria-hidden="true"></span>{{ version|default('v0.1') }}</a>
@@ -77,10 +78,11 @@
         <div class="wrap footer__grid">
             <div>
                 <p class="footer__line">Climb the gradient. The light wins.</p>
-                <p class="dim" style="margin:0;font-size:.82rem">Public rankings by Effective Accelerationism alignment · Evidence-cited · Human-reviewed only</p>
+                <p class="dim" style="margin:0;font-size:.82rem">Public rankings in Kardashev terms · Mostly measured · Opinion labelled · Entities admin-approved</p>
             </div>
             <div class="footer__meta">
                 <a href="/">Leaderboard</a>
+                <a href="/methodology">Methodology</a>
                 <a href="/suggest">Suggest an entity</a>
                 <a href="/health">Status</a>
                 <span class="mono">{{ version|default('v0.1') }}</span>

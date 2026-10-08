@@ -1,0 +1,110 @@
+{% extends "base.html" %}
+
+{% block title %}Methodology — Kardashev Index{% endblock %}
+{% block description %}How the Kardashev Index is computed: 65% measured from reported energy, compute and growth figures, 35% labelled opinion scored against written rubrics. Weights, normalization anchors, rubrics and verification rules.{% endblock %}
+
+{% block content %}
+    <p class="eyebrow">Methodology · {{ meth.PIPELINE_VERSION }}</p>
+    <h1 class="h2" style="margin-top:0">Mostly measured. Opinion, labelled.</h1>
+    <p class="lede muted" style="max-width:48rem">The Index is 0–10. <b>65%</b> of the weight is <b>measured</b>: computed in code from figures companies report about themselves — energy, data-center capacity, capital spending. <b>35%</b> is <b>opinion</b>: a model scores three categories against the written rubrics below, using only quotes we have verified. The model never does arithmetic and is never asked for an “overall” score.</p>
+
+    <section class="admin-sec" aria-labelledby="m-weights">
+        <h2 id="m-weights" class="h3 sec-h">Categories and weights <span class="dim mono" style="font-size:.7rem">{{ meth.WEIGHTS_VERSION }}</span></h2>
+        <div class="table-scroll">
+        <table class="data-table">
+            <thead><tr><th>Category</th><th>Type</th><th class="num">Weight</th><th>What it measures</th></tr></thead>
+            <tbody>
+            {% for c in meth.CATEGORIES %}
+            <tr>
+                <td><b>{{ c.label }}</b></td>
+                <td><span class="tag {{ 'tag--measured' if c.family == 'measured' else 'tag--opinion' }}">{{ 'Measured' if c.family == 'measured' else 'Opinion' }}</span></td>
+                <td class="mono num">{{ '%.0f'|format(c.weight * 100) }}%</td>
+                <td class="muted">{{ c.what }}</td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="m-norm">
+        <h2 id="m-norm" class="h3 sec-h">Measured categories: normalization</h2>
+        <p class="muted" style="max-width:48rem">Energy and compute span many orders of magnitude, so they are scored on a log scale: every 10× is +2.5 points. Growth is mapped through fixed anchors. Anchors are fixed, not curved to the current leaderboard, so a score means the same thing next year.</p>
+        <div class="cards">
+        {% for c in meth.CATEGORIES if c.family == 'measured' %}
+            <article class="card">
+                <div class="card__head"><div><p class="card__k">{{ c.kicker }} · {{ '%.0f'|format(c.weight * 100) }}%</p><h3 class="card__title">{{ c.label }}</h3></div></div>
+                <p class="card__body"><b>Inputs.</b> {{ c.inputs }}</p>
+                <p class="card__body mono" style="font-size:.82rem">{{ c.formula }}</p>
+                <table class="data-table anchors">
+                    <thead><tr><th>Reported</th><th class="num">Score</th></tr></thead>
+                    <tbody>{% for label, s in c.anchors %}<tr><td>{{ label }}</td><td class="mono num">{{ s }}</td></tr>{% endfor %}</tbody>
+                </table>
+            </article>
+        {% endfor %}
+            <article class="card">
+                <div class="card__head"><div><p class="card__k">Headline</p><h3 class="card__title">Kardashev-equivalent</h3></div></div>
+                <p class="card__body">We convert reported annual energy to average power <span class="mono">P</span> in watts and apply Carl Sagan’s interpolation <span class="mono">K = (log₁₀P − 6) / 10</span>. Humanity today is about K 0.73; a 1 GW company is K 0.30. K is shown as the headline; the Energy score is the same quantity on a 0–10 scale.</p>
+                <p class="card__body dim">Energy that is only <i>enabled</i> (batteries or panels shipped to others) is not counted, so that the same joules are not credited to several companies.</p>
+            </article>
+        </div>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="m-rubrics">
+        <h2 id="m-rubrics" class="h3 sec-h">Opinion categories: rubrics <span class="dim mono" style="font-size:.7rem">{{ meth.RUBRIC_VERSION }}</span></h2>
+        <p class="muted" style="max-width:48rem">These are an explicitly e/acc editorial lens. The model gets the rubric and a numbered list of verified quotes; each score must cite at least one of them, and if the quotes don’t support a score it must return “insufficient evidence” instead of a middle value. Confidence is capped at 85% and lowered when fewer than three quotes support a score.</p>
+        <div class="cards">
+        {% for key in meth.JUDGED_KEYS %}{%- set c = meth.BY_KEY[key] -%}
+            <article class="card card--opinion" id="rubric-{{ key }}">
+                <div class="card__head"><div><p class="card__k">Opinion · {{ '%.0f'|format(c.weight * 100) }}%</p><h3 class="card__title">{{ c.label }}</h3></div></div>
+                <p class="card__body">{{ c.what }}</p>
+                <ol class="rubric">
+                {% for anchor, text in meth.RUBRICS[key].items() %}
+                    <li><span class="mono rubric__a">{{ anchor }}</span><span>{{ text }}</span></li>
+                {% endfor %}
+                </ol>
+            </article>
+        {% endfor %}
+        </div>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="m-pipeline">
+        <h2 id="m-pipeline" class="h3 sec-h">How a run works</h2>
+        <ol class="criteria">
+            <li><span class="mono">01</span><span><b>Resolve.</b> Pin down the official name, website, ticker and whether it’s public (model with web search).</span></li>
+            <li><span class="mono">02</span><span><b>Research.</b> Find primary documents: sustainability and ESG reports, CDP responses, annual reports, filings, official announcements (model with web search; at most {{ cfg.research_max_tool_calls }} searches).</span></li>
+            <li><span class="mono">03</span><span><b>SEC EDGAR.</b> For US-listed filers, annual capital expenditure and revenue come straight from XBRL filings — no model involved.</span></li>
+            <li><span class="mono">04</span><span><b>Fetch.</b> We download every proposed source ourselves. Dead links, pages that redirect to a homepage, pages that read as “not found”, and pages that look like what the site returns for a random made-up path (a soft-404 probe) are rejected. We store a hash and a text snapshot of what we read.</span></li>
+            <li><span class="mono">05</span><span><b>Extract.</b> The model copies figures (value, unit, period) and claims, each with a quote. We keep a quote only if it appears verbatim in the fetched text, the number appears in the quote, the unit appears next to it, and the magnitude is physically plausible.</span></li>
+            <li><span class="mono">06</span><span><b>Compute.</b> Units, average power, K, growth rates and the measured scores are computed in Python. If sources disagree for the same year, primary sources win and confidence drops.</span></li>
+            <li><span class="mono">07</span><span><b>Judge.</b> The three opinion categories are scored against the rubrics from verified quotes only.</span></li>
+            <li><span class="mono">08</span><span><b>Aggregate and publish.</b> Weighted in code. A run only replaces the published one if it succeeds — and a run that doesn’t qualify for ranking never replaces one that does. Every run is kept, with timing, tokens and cost per stage.</span></li>
+        </ol>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="m-conf">
+        <h2 id="m-conf" class="h3 sec-h">Confidence, coverage and ranking</h2>
+        <ul class="criteria">
+            <li><span class="mono">Σ</span><span><b>Index</b> = Σ wᵢ·sᵢ / Σ wᵢ over the categories that have a score. Missing categories are left out, never filled with a default.</span></li>
+            <li><span class="mono">%</span><span><b>Coverage</b> = the share of total weight that was scored. <b>Confidence</b> = Σ wᵢ·confidenceᵢ over all categories, so missing data lowers confidence directly.</span></li>
+            <li><span class="mono">≥</span><span><b>Ranked</b> only when coverage ≥ {{ '%.0f'|format(cfg.rank_min_coverage * 100) }}% and at least {{ '%.0f'|format(cfg.rank_min_measured * 100) }}% of the weight is measured. Otherwise the entity is listed as “not ranked yet” with the reason.</span></li>
+            <li><span class="mono">c</span><span><b>Measured confidence</b>: SEC filings 95%, the company’s own documents 90%, third-party sources 65%; reduced for figures older than three years, for electricity-only figures (fuels missing) and when sources conflict.</span></li>
+        </ul>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="m-limits">
+        <h2 id="m-limits" class="h3 sec-h">Known limits</h2>
+        <ul class="criteria">
+            <li><span class="mono">!</span><span>Companies that don’t publish energy or capacity figures score lower confidence and may not be ranked. Most private companies fall here.</span></li>
+            <li><span class="mono">!</span><span>Compute counts capacity a company <i>operates</i>. A chipmaker whose hardware runs in other companies’ data centers is not credited with those watts.</span></li>
+            <li><span class="mono">!</span><span>Research depends on what web search surfaces in a limited number of searches; a missed report means a missing figure, not a low one.</span></li>
+            <li><span class="mono">!</span><span>Opinion categories are editorial. They carry 35% of the weight, are marked as opinion everywhere, and cite their quotes.</span></li>
+            <li><span class="mono">!</span><span>Entities without a measured run may show their legacy v0 scores (a single model prompt, superseded), labelled as such and never ranked.</span></li>
+        </ul>
+    </section>
+
+    <div class="meta-line">
+        <span>{{ meth.PIPELINE_VERSION }} · {{ prompt_version }} · {{ meth.RUBRIC_VERSION }} · {{ meth.WEIGHTS_VERSION }}</span>
+        <span>Model {{ cfg.model }} · budget cap ${{ '%.2f'|format(cfg.max_cost_usd) }} per run</span>
+    </div>
+{% endblock %}

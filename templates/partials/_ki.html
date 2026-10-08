@@ -55,3 +55,22 @@
 {%- endmacro -%}
 
 {%- macro pretty(url) -%}{%- set u = (url or '').split('//', 1)[-1] -%}{{ (u[4:] if u.startswith('www.') else u).rstrip('/') }}{%- endmacro -%}
+
+{#- Verified evidence: verbatim quotes we found in pages we fetched ourselves. -#}
+{%- macro quotes(items, limit=6) -%}
+{%- if items -%}
+<ul class="quotes">
+  <li class="evidence__k">Verified evidence</li>
+  {%- for e in items[:limit] %}
+  <li class="quote">
+    {%- if e.kind == 'filing' %}<span class="quote__t mono">{{ e.quote }}</span>
+    {%- else %}<q class="quote__t">{{ e.quote }}</q>{% endif %}
+    {%- if e.url %} <a href="{{ e.url }}" target="_blank" rel="noopener nofollow" class="quote__src">{{ e.domain }}{% if e.fetched_at %} · fetched {{ e.fetched_at.strftime('%Y-%m-%d') }}{% endif %} ↗</a>{% endif %}
+  </li>
+  {%- endfor %}
+  {%- if items|length > limit %}<li class="dim mono" style="font-size:.7rem">+{{ items|length - limit }} more in Reported figures</li>{% endif %}
+</ul>
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro kfmt(k) -%}{{ 'K %.3f'|format(k) if k is not none else '—' }}{%- endmacro -%}

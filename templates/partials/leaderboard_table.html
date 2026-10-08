@@ -1,48 +1,58 @@
 {%- import "partials/_ki.html" as ki -%}
-{%- set board_cats = ["ai_tech_acceleration", "energy_kardashev", "market_competition", "regulatory_stance", "builder_culture"] -%}
+{%- set board_cats = [("energy_throughput", "Energy"), ("compute_capacity", "Compute"), ("growth", "Growth")] -%}
 <div id="leaderboard-table" class="board">
     {% if companies %}
     <table class="board-table">
-        <caption class="sr-only">Companies ranked by overall e/acc alignment score, 0 to 10</caption>
+        <caption class="sr-only">Companies ranked by Kardashev Index score, 0 to 10: 65% measured from reported figures, 35% opinion</caption>
         <thead>
             <tr>
                 <th scope="col" class="col-rank">Rank</th>
                 <th scope="col">Entity</th>
-                {% for cat in board_cats %}<th scope="col" class="col-cat num">{{ ki.cat_short(cat) }}</th>{% endfor %}
-                <th scope="col" class="col-overall num">Overall</th>
+                <th scope="col" class="col-k num" title="Kardashev-equivalent of reported average power">K-equiv</th>
+                {% for key, label in board_cats %}<th scope="col" class="col-cat num">{{ label }}</th>{% endfor %}
+                <th scope="col" class="col-cat num" title="Weighted mean of the three opinion categories">Opinion</th>
+                <th scope="col" class="col-overall num">Index</th>
             </tr>
         </thead>
         <tbody>
             {% for item in companies %}
-            {%- set pending = item.status is defined and item.status != 'ranked' -%}
+            {%- set run = item.run -%}
             <tr>
                 <td class="col-rank">
                     <span class="rank{% if loop.first and not q %} rank--1{% endif %}">
-                        {%- if loop.first and not q and not pending %}{{ ki.torch() }}{% endif -%}
+                        {%- if loop.first and not q %}{{ ki.torch() }}{% endif -%}
                         {{ '%02d'|format(loop.index) }}
                     </span>
                 </td>
                 <td>
                     <div class="entity">
-                        <a href="/companies/{{ item.company.id }}" class="entity__name">{{ item.company.canonical_name }}</a>
+                        <a href="/companies/{{ item.company.id }}" class="entity__name">{{ item.company.official_name or item.company.canonical_name }}</a>
                         <span class="entity__ind">{{ item.company.industry or 'Industry unlisted' }}</span>
                     </div>
                 </td>
-                {% for cat in board_cats %}
+                <td class="col-k"><span class="kval">{{ '%.3f'|format(run.k_equivalent) if run.k_equivalent is not none else '—' }}</span></td>
+                {% for key, label in board_cats %}
+                {%- set cs = item.cats.get(key) -%}
                 <td class="col-cat">
-                    {% if cat in item.scores %}
+                    {% if cs and cs.score is not none %}
                     <div class="minibar">
-                        <span class="minibar__v">{{ '%.1f'|format(item.scores[cat].score) }}</span>
-                        {{ ki.bar(item.scores[cat].score, pending, ki.cat_label(cat)) }}
+                        <span class="minibar__v">{{ '%.1f'|format(cs.score) }}</span>
+                        {{ ki.bar(cs.score, false, label) }}
                     </div>
-                    {% else %}<div class="minibar"><span class="minibar__v dim">—</span></div>{% endif %}
+                    {% else %}<div class="minibar"><span class="minibar__v dim" title="not reported">—</span></div>{% endif %}
                 </td>
                 {% endfor %}
+                <td class="col-cat">
+                    {% if run.judged_score is not none %}
+                    <div class="minibar"><span class="minibar__v">{{ '%.1f'|format(run.judged_score) }}</span>{{ ki.bar(run.judged_score, false, 'Opinion') }}</div>
+                    {% else %}<div class="minibar"><span class="minibar__v dim">—</span></div>{% endif %}
+                </td>
                 <td class="col-overall">
                     <div class="overall">
-                        {{ ki.band(item.overall, pending) }}
-                        <span class="overall__v">{{ item.overall }}<small>/10</small></span>
-                        {{ ki.bar(item.overall, pending, 'Overall') }}
+                        {{ ki.band(run.index_score) }}
+                        <span class="overall__v">{{ '%.1f'|format(run.index_score) }}<small>/10</small></span>
+                        {{ ki.bar(run.index_score, false, 'Index') }}
+                        <span class="overall__c">conf {{ '%.0f'|format((run.confidence or 0) * 100) }}%</span>
                     </div>
                 </td>
             </tr>
@@ -51,8 +61,8 @@
     </table>
     {% elif awaiting %}
     <div class="board-empty">
-        <p class="h3">No entity has a completed judgment{% if q %} matching “{{ q }}”{% endif %} yet.</p>
-        <p class="muted" style="margin:0">The entries below are approved and waiting on the judge.</p>
+        <p class="h3">No entity has a completed measured run{% if q %} matching “{{ q }}”{% endif %} yet.</p>
+        <p class="muted" style="margin:0">The entries below are approved and waiting for enough verified data to be ranked.</p>
     </div>
     {% else %}
     <div class="board-empty">
@@ -67,10 +77,10 @@
     {% endif %}
     {% if awaiting %}
     <div class="awaiting">
-        <p class="awaiting__k"><span class="band band--pending">Awaiting judgment</span><span class="dim">Approved, not yet ranked</span></p>
+        <p class="awaiting__k"><span class="band band--pending">Not ranked yet</span><span class="dim">Approved; waiting on a measured run or more verified data</span></p>
         <ul class="awaiting__list">
             {% for item in awaiting %}
-            <li><a href="/companies/{{ item.company.id }}">{{ item.company.canonical_name }}</a><span class="dim">{{ item.company.industry or 'Industry unlisted' }}</span></li>
+            <li><a href="/companies/{{ item.company.id }}">{{ item.company.official_name or item.company.canonical_name }}</a><span class="dim">{{ item.reason }}{% if item.legacy and item.legacy.overall is not none and not item.run %} · legacy v0 {{ item.legacy.overall }}{% endif %}</span></li>
             {% endfor %}
         </ul>
     </div>
