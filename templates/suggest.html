@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}Suggest a Company — Kardashev Index{% endblock %}
+
+{% block content %}
+    <div class="max-w-xl">
+        <h1 class="text-3xl font-bold mb-2">Suggest a Company</h1>
+        <p class="text-zinc-400 mb-8">All suggestions are human-reviewed before appearing on the public leaderboard.</p>
+
+        <form method="post" class="space-y-4">
+            <div>
+                <label class="block text-sm mb-1">Company Name</label>
+                <input type="text" name="name" required class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded">
+            </div>
+            <div>
+                <label class="block text-sm mb-1">Domain (optional)</label>
+                <input type="text" name="domain" placeholder="example.com" class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded">
+            </div>
+            <div>
+                <label class="block text-sm mb-1">Why should this company be included?</label>
+                <textarea name="reason" rows="4" class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded"></textarea>
+            </div>
+            <button type="submit" class="bg-emerald-600 hover:bg-emerald-700 px-6 py-2 rounded">Submit Suggestion</button>
+        </form>
+    </div>
+{% endblock %}

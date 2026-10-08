@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, Depends, HTTPException
+from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -487,7 +487,7 @@ def submit_suggestion(
     reason: str = Form(None),
     db: Session = Depends(get_db)
 ):
-    from fastapi import Form
+    # from fastapi import Form  (moved to top)
     # Reuse existing suggestion logic (simplified for MVP)
     norm = normalize_name(name)
     dup = find_duplicate_company(db, name, domain)
