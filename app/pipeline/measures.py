@@ -41,13 +41,58 @@ GROWTH_ANCHORS = [(-0.30, 0.0), (0.0, 3.0), (0.10, 5.0), (0.25, 7.0), (0.50, 9.0
 GROWTH_SUB_WEIGHTS = {"capex": 0.50, "revenue": 0.25, "energy": 0.25}
 
 
+_SCALE_WORDS = {"thousand": 1e3, "thousands": 1e3, "k": 1e3, "'000": 1e3, "000": 1e3, "000s": 1e3,
+                "million": 1e6, "millions": 1e6, "mn": 1e6, "mm": 1e6, "m": 1e6,
+                "billion": 1e9, "billions": 1e9, "bn": 1e9, "b": 1e9}
+_UNIT_WORDS = {
+    "megawatthour": "MWh", "gigawatthour": "GWh", "terawatthour": "TWh", "kilowatthour": "kWh",
+    "petawatthour": "PWh", "watthour": "Wh", "gigajoule": "GJ", "terajoule": "TJ", "petajoule": "PJ",
+    "megajoule": "MJ", "exajoule": "EJ", "kilojoule": "kJ", "joule": "J", "megawatt": "MW",
+    "gigawatt": "GW", "kilowatt": "kW", "terawatt": "TW", "watt": "W", "millionbtu": "MMBtu",
+    "usd": "USD", "$": "USD", "us$": "USD", "dollar": "USD", "usdollar": "USD",
+}
+_PER_YEAR = re.compile(r"\s*(?:/|per)\s*(?:yr|year|annum|a)\b\.?|\s*(?:annually|a year|each year|p\.a\.)$")
+
+
 def canonical_unit(metric_key: str, unit: str) -> str | None:
+    """Map the unit as written ('MWh', 'megawatt hours', 'MWh/yr', 'thousand MWh', '$ millions')
+    to a unit of this metric's table. A scale word is folded into the unit (thousand MWh = GWh)."""
     table = METRIC_UNITS.get(metric_key) or {}
     u = (unit or "").strip()
     if u in table:
         return u
     low = {k.lower(): k for k in table}
-    return low.get(u.lower().replace(" ", ""))
+    if u.lower().replace(" ", "") in low:
+        return low[u.lower().replace(" ", "")]
+    t = _PER_YEAR.sub("", u.lower().replace("\u00a0", " ")).strip()
+    t = re.sub(r"[()\[\]]", " ", t)
+    t = re.sub(r"\bin\b|\bof\b", " ", t)
+    words = [w for w in re.split(r"[\s,]+", t) if w]
+    scale = 1.0
+    rest = []
+    for w in words:
+        if w in _SCALE_WORDS and (rest or len(words) > 1):
+            scale *= _SCALE_WORDS[w]
+        else:
+            rest.append(w)
+    base_txt = "".join(rest).replace("-", "").replace(".", "")
+    if base_txt.startswith(("us$", "$")) and len(base_txt) > len("$") and base_txt.lstrip("us$") in ("m", "mn", "bn", "b", "k"):
+        scale *= _SCALE_WORDS[base_txt.lstrip("us$")]
+        base_txt = "$"
+    base_txt = base_txt[:-1] if base_txt.endswith("s") and base_txt[:-1] in _UNIT_WORDS else base_txt
+    base = _UNIT_WORDS.get(base_txt) or low.get(base_txt)
+    if base is None:
+        return None
+    if base == "USD" and table is CURRENCY_TO_USD:
+        factor = scale
+    elif base in table:
+        factor = table[base] * scale
+    else:
+        return None
+    for k, v in table.items():
+        if abs(v - factor) <= 1e-9 * factor:
+            return k
+    return None
 
 
 def to_si(metric_key: str, value: float, unit: str) -> float | None:

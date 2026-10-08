@@ -1,0 +1,106 @@
+# Raw pypdf 5 page text excerpts (line breaks, hyphenation splits, footnote markers and en-spaces kept
+# as extracted) from NVIDIA's public 'Sustainability Report Fiscal Year 2026' PDF:
+# https://images.nvidia.com/aem-dam/Solutions/documents/NVIDIA-Sustainability-Report-Fiscal-Year-2026.pdf
+# (pages 8, 11, 12, 31). Pages are separated by form feeds. Used only as a regression fixture.
+In 2024, we launched the NVIDIA Blackwell 
+architecture—connecting 36 Grace CPUs and 
+72 Blackwell GPUs in a data-center-scale, 
+liquid-cooled design—for real-time trillion-
+parameter inference and training. In 2025, we 
+launched and scaled the NVIDIA Blackwell Ultra 
+platform, optimized for agentic, reasoning, 
+and physical AI. Building on the architectural 
+breakthroughs of NVIDIA Blackwell and 
+leveraging NVIDIA Dynamo inference software, 
+it delivers a significant increase in token 
+throughput and reduction in cost per token 
+compared to the NVIDIA Hopper™ generation. NVIDIA’s sustainability reporting follows our 
+fiscal calendar; FY26 data corresponds to the 
+period January 27, 2025, to January 25, 2026. NVIDIA GPUs can run AI workloads that 
+can’t be completed with traditional 
+computing. While our latest architecture, 
+NVIDIA Rubin, has demonstrated up to 
+10x energy efficiency over the previous 
+architecture,3 software updates continue 
+to improve the performance of older 
+products as well. For additional information 
+about methodology behind comparisons 
+in this section, please refer to Endnotes.
+The NVIDIA computing stack is built for 
+performance and energy-efficient compute:
+ › NVIDIA Vera CPU: Enables software 
+environments to run up to 50% faster 
+with 2x the efficiency of traditional CPU 
+infrastructure, unlocking agentic AI at scale.4 
+ › NVIDIA Groq 3 LPX + Vera Rubin NVL72: 
+delivers 35x inference performance per watt 
+for trillion-parameter models relative to 
+Blackwell (GB200 NVL72).2
+ › NVIDIA® BlueField® DPU: Offloads process-
+intensive tasks from the CPU, and our STX 
+reference architecture provides up to 1.5x 
+energy efficiency compared to the latest x86 
+based storage offering.5 100%
+Clean electricity purchased or 
+generated, reducing our Scope 2 
+market-based emissions.
+In FY26, NVIDIA achieved:
+demand with hybrid onsite generation to 
+save energy and maintain grid stability.
+Greenhouse Gas Emissions
+We assess our carbon footprint across 
+our product lifecycle and climate risks, 
+including regulations and market impacts.
+To manage the greenhouse gas (GHG) 
+emissions footprint of our data centers, 
+labs, and offices, we strategically focus on 
+working with key data center partners to 
+optimize efficiency, managing our operations 
+efficiently, and sourcing clean energy. 
+Last year, we met our goal to purchase 
+or generate enough clean electricity to 
+match 100% of our global electricity usage 
+for sites under our operational control. 
+In FY26, we continued to match 100% of 
+our global electricity usage with clean 
+electricity, reducing Scope 2 market-based 
+emissions.1 NVIDIA defines clean electricity 
+as electricity generated from non-fossil fuel 
+sources, including solar, wind, and other 
+low-carbon technologies. The term refers 
+to emissions at the point of generation and 
+does not address full life cycle impacts.
+NVIDIA Sustainability | Sustainability Indicators
+31
+Message From 
+Our CEO
+Introduction Energy, Efficiency, 
+and Climate
+Our People Product Value 
+Chain
+Responsible 
+Business
+Sustainability 
+Indicators
+Energy, Efficiency, and Climate
+Metric FY26 FY25 FY24 Reference Indicator
+GHG emissions intensity (Scope 1 and 2 mtCO2e/$M revenue) 0.05 0.07 0.81 GRI 305-4
+Reduction of GHG emissions Energy, Efficiency, and Climate GRI 305-5 
+SASB TC-SC-110a.2
+Energy (MWh)*
+Energy consumption 1,053,479 815,864 593,953 GRI 302-1 
+Non-renewable electricity 0 0 134,287
+Renewable electricity purchased 1,004,842 779,316 419,980
+Renewable electricity generated, onsite solar 622 818 599
+Fuel 46,258 35,729 39,087
+Purchased heating 862
+Purchased cooling 895
+Renewable electricity percentage (%) 100% 100% 76%
+Energy intensity (Energy consumption MWh/$M revenue) 4.9 6.3 9.7 GRI 302-3
+Reduction of energy consumption Energy-Efficient Sites GRI 302-4
+Reductions in energy requirements of products and services Product Energy Efficiency GRI 302-5 
+SASB TC-SC-410a.2
+Energy management in manufacturing We are a fabless semiconductor company and do not have our own manufacturing facilities.  
+See Product Environmental Impact for how we work with suppliers to track energy usage.
+SASB TC-SC-130a.1
+*  Due to improved data collection and calculation methodology, some reported values in prior-year energy data no longer directly match the data tables from those years.

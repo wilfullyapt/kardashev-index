@@ -36,6 +36,6 @@ def test_windows_are_verbatim_slices_around_keywords():
     text = ("Lorem ipsum dolor sit amet. " * 400) + "Total electricity use was 2.1 TWh in 2024. " + ("Filler text. " * 400)
     w = ev.windows(text, 2000)
     assert "2.1 TWh" in w and len(w) <= 2010
-    for part in w.split(" … "):
+    for part in w.split(ev.GAP):
         assert part in text
     assert ev.windows("short", 100) == "short"

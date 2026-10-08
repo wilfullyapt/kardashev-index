@@ -13,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 from rapidfuzz import fuzz
 from sqlalchemy.orm import Session
 
+from .. import publication
 from ..models import (CategoryScore, Company, Evidence, IngestLog, JudgmentRun, JudgmentStage, Metric,
                       Source)
 from . import evidence as ev
@@ -99,7 +100,7 @@ class RunContext:
         self.seq = 0
         self.entity: dict = {}
         self.candidates: list[dict] = []
-        self.texts: dict[int, tuple[str, str]] = {}   # source_id -> (text, normalized text)
+        self.texts: dict[int, ev.SourceText] = {}    # source_id -> fetched text (+ matching index)
         self.sources: dict[int, Source] = {}
         self.figures: list[Figure] = []
         self.claims: list[Evidence] = []
@@ -306,9 +307,12 @@ def stage_fetch(ctx: RunContext):
             results = list(pool.map(work, ctx.candidates))
         counts: dict[str, int] = {}
         domain = ctx.entity.get("domain")
+        seen_sha: dict[str, int] = {}
         for c, res, a in results:
-            counts[a.status] = counts.get(a.status, 0) + 1
             snap = a.snapshot
+            if a.status == "ok" and snap and snap.sha256 in seen_sha:
+                a = type(a)("duplicate", f"same content as source #{seen_sha[snap.sha256]}", snap)
+            counts[a.status] = counts.get(a.status, 0) + 1
             src = Source(run_id=ctx.run.id, url=c["url"], final_url=res.final_url, origin=c["origin"],
                          http_status=res.status, content_type=res.content_type or None,
                          title=(snap.title if snap and snap.title else c.get("title")),
@@ -320,8 +324,9 @@ def stage_fetch(ctx: RunContext):
             ctx.db.add(src)
             ctx.db.flush()
             if a.status == "ok":
+                seen_sha[snap.sha256] = src.id
                 ctx.sources[src.id] = src
-                ctx.texts[src.id] = (snap.text, ev.normalize(snap.text))
+                ctx.texts[src.id] = ev.SourceText(snap.text)
         st.detail["status_counts"] = counts
 
 
@@ -330,16 +335,22 @@ def stage_extract(ctx: RunContext):
         if not ctx.texts:
             st.skip("no verified sources to read")
             return
-        n = len(ctx.texts)
-        per = min(ctx.s.per_source_chars, max(1500, ctx.s.extract_max_chars // n))
-        blocks = [(f"S{sid}", ctx.sources[sid].final_url or ctx.sources[sid].url, ev.windows(text, per))
-                  for sid, (text, _) in ctx.texts.items()]
+        plans = {sid: ev.plan(t.text) for sid, t in ctx.texts.items()}
+        budgets = ev.allocate(plans, {sid: len(t.text) for sid, t in ctx.texts.items()},
+                              ctx.s.extract_max_chars, ctx.s.per_source_chars)
+        blocks, sent = [], {}
+        for sid, t in ctx.texts.items():
+            w = ev.windows(t.text, budgets[sid], plans[sid])
+            blocks.append((f"S{sid}", ctx.sources[sid].final_url or ctx.sources[sid].url, w))
+            sent[f"S{sid}"] = {"chars": len(t.text), "sent": len(w), "relevance": round(plans[sid].relevance, 1)}
+        st.detail["input"] = sent
         sid_map = {f"S{sid}": sid for sid in ctx.texts}
         (figures, claims, rejected), _ = ctx.call_json(
             st, kind="chat", system=P.EXTRACT_SYSTEM, user=P.extract_user(ctx.entity.get("official_name", ""), blocks),
-            validate=lambda d: P.validate_extract(d, set(sid_map)), max_tokens=8000)
+            validate=lambda d: P.validate_extract(d, set(sid_map)), max_tokens=10000)
         kept_f = kept_c = 0
         reasons: dict[str, int] = {}
+        methods: dict[str, int] = {}
 
         def reject(row: Evidence, why: str):
             row.quote_verified = False
@@ -348,52 +359,58 @@ def stage_extract(ctx: RunContext):
 
         for f in figures:
             sid = sid_map[f["source_id"]]
-            text_norm = ctx.texts[sid][1]
+            src_text = ctx.texts[sid]
             unit = canonical_unit(f["metric_key"], f["unit"])
             row = Evidence(run_id=ctx.run.id, source_id=sid, category=_cat_for_metric(f["metric_key"]),
                            kind="figure", claim=f"{METRIC_LABELS[f['metric_key']]}: {f['value']:g} {f['unit']}",
-                           quote=f["quote"], metric_key=f["metric_key"], value=f["value"], unit=unit or f["unit"],
-                           period=f["period"], scope=f["scope"])
+                           quote=f["quote"][:2000], metric_key=f["metric_key"], value=f["value"],
+                           unit=unit or f["unit"], period=f["period"], scope=f["scope"])
             ctx.db.add(row)
-            idx = ev.find_quote(f["quote"], text_norm)
-            if idx < 0:
-                reject(row, "quote not found verbatim in fetched source")
+            m = ev.locate(f["quote"], src_text)
+            if m is None:
+                reject(row, "quote not found in fetched source")
             elif unit is None:
                 reject(row, f"unsupported unit {f['unit']!r} for {f['metric_key']}")
-            elif not ev.number_matches(f["value"], f["quote"]):
+            elif not (ev.number_matches(f["value"], m.text) and ev.number_matches(f["value"], f["quote"])):
                 reject(row, "value does not appear in the quote")
-            elif not ev.unit_present(unit, ev.context_around(text_norm, idx, f["quote"], 200)):
+            elif not ev.unit_present(unit, src_text.context(m, 300), f["unit"]):
                 reject(row, "unit not found near the quote")
             elif (to_si(f["metric_key"], f["value"], unit) or 0) > PLAUSIBLE_MAX_SI[f["metric_key"]]:
                 reject(row, "implausible magnitude (likely unit or scope error)")
                 ctx.flags.append(f"implausible {f['metric_key']}: {f['value']} {unit}")
             else:
                 row.quote_verified = True
-                row.context = ev.context_around(text_norm, idx, f["quote"])
+                row.quote = m.text           # store exactly what the source says
+                row.context = src_text.context(m)
+                methods[m.method] = methods.get(m.method, 0) + 1
                 kept_f += 1
             ctx.db.flush()
             if row.quote_verified:
                 src = ctx.sources[sid]
                 ctx.figures.append(Figure(row.id, sid, f["metric_key"], f["value"], unit, f["period"],
-                                          bool(src.is_primary), src.final_url or src.url, f["quote"]))
+                                          bool(src.is_primary), src.final_url or src.url, row.quote))
         for c in claims:
             sid = sid_map[c["source_id"]]
-            text_norm = ctx.texts[sid][1]
+            src_text = ctx.texts[sid]
             row = Evidence(run_id=ctx.run.id, source_id=sid, category=c["category"], kind="claim",
-                           claim=c["claim"], quote=c["quote"])
+                           claim=c["claim"], quote=c["quote"][:2000])
             ctx.db.add(row)
-            idx = ev.find_quote(c["quote"], text_norm)
-            if idx < 0:
-                reject(row, "quote not found verbatim in fetched source")
+            m = ev.locate(c["quote"], src_text)
+            if m is None:
+                reject(row, "quote not found in fetched source")
             else:
                 row.quote_verified = True
-                row.context = ev.context_around(text_norm, idx, c["quote"])
+                row.quote = m.text
+                row.context = src_text.context(m)
+                methods[m.method] = methods.get(m.method, 0) + 1
                 kept_c += 1
                 ctx.claims.append(row)
             ctx.db.flush()
         st.detail.update({"figures_proposed": len(figures), "figures_verified": kept_f,
                           "claims_proposed": len(claims), "claims_verified": kept_c,
-                          "malformed_dropped": len(rejected), "rejections": reasons})
+                          "malformed_dropped": len(rejected), "rejections": reasons, "match_methods": methods})
+        if rejected:
+            st.detail["malformed"] = rejected[:20]
 
 
 def _cat_for_metric(key: str) -> str:
@@ -425,18 +442,32 @@ def stage_compute(ctx: RunContext):
 
 
 def stage_judge(ctx: RunContext):
+    """Opinion categories are judged whenever there is any verified evidence — qualitative quotes
+    and, as supporting context, verified figures — even if the measured data is too thin to rank."""
     with ctx.stage("judge") as st:
         claims = [c for c in ctx.claims if c.quote_verified][:30]
-        if not claims:
-            st.skip("no verified qualitative evidence")
+        fig_ids = [f.evidence_id for f in ctx.figures if f.evidence_id][:15]
+        figs = ctx.db.query(Evidence).filter(Evidence.id.in_(fig_ids)).all() if fig_ids else []
+        if not claims and not figs:
+            st.skip("no verified evidence")
             ctx.judged = {k: {"score": None, "insufficient": True, "confidence": 0.0, "evidence_ids": [],
                               "rationale": "No verified evidence was available, so this opinion category is unscored."}
                           for k in meth.JUDGED_KEYS}
             return
+        domains: dict[int, str | None] = {}
+
+        def domain(source_id):
+            if source_id not in domains:
+                src = ctx.sources.get(source_id) or ctx.db.get(Source, source_id)
+                domains[source_id] = urlsplit(src.final_url or src.url).hostname if src else None
+            return domains[source_id]
+
         items = [{"id": c.id, "category": c.category, "claim": c.claim, "quote": c.quote,
-                  "domain": urlsplit(ctx.sources[c.source_id].final_url or ctx.sources[c.source_id].url).hostname}
-                 for c in claims]
-        ids = {c.id for c in claims}
+                  "domain": domain(c.source_id)} for c in claims]
+        items += [{"id": e.id, "category": "measured figure", "claim": e.claim, "quote": e.quote,
+                   "domain": domain(e.source_id)} for e in figs]
+        ids = {i["id"] for i in items}
+        st.detail["evidence_items"] = {"claims": len(claims), "figures": len(figs)}
         (judged, synthesis), _ = ctx.call_json(
             st, kind="chat", system=P.JUDGE_SYSTEM, user=P.judge_user(ctx.entity.get("official_name", ""), items),
             validate=lambda d: P.validate_judge(d, ids), max_tokens=6000)
@@ -472,15 +503,15 @@ def stage_aggregate(ctx: RunContext):
         if ctx.headline:
             run.avg_power_w, run.k_equivalent = ctx.headline["avg_power_w"], ctx.headline["k_equivalent"]
         prev = ctx.db.get(JudgmentRun, company.current_run_id) if company.current_run_id else None
-        publish = agg.ranked or prev is None or not prev.ranked
+        publish, note = publication.decide(agg.ranked, agg.coverage, prev,
+                                           publication.has_legacy_scores(ctx.db, company.id))
         run.published = publish
         e = ctx.entity
         run.summary = {"entity": e, "synthesis": ctx.synthesis, "headline": ctx.headline,
                        "not_ranked_reason": agg.reason, "measured_coverage": agg.measured_coverage,
                        "flags": ctx.flags, "previous_run_id": prev.id if prev else None,
                        "previous_index": prev.index_score if prev else None,
-                       "publish_note": None if publish else
-                       f"kept run {prev.id} published: it was ranked and this run was not"}
+                       "publish_note": note}
         # Identity facts from resolution (never scores) are applied to the company.
         for attr, val in (("official_name", e.get("official_name")), ("ticker", e.get("ticker")),
                           ("exchange", e.get("exchange")), ("cik", e.get("cik")), ("is_public", e.get("is_public"))):

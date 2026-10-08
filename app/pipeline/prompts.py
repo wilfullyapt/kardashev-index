@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from .measures import METRIC_UNITS
 from .methodology import BY_KEY, JUDGED_KEYS, RUBRICS
 
-PROMPT_VERSION = "prompts-v2.0"
+PROMPT_VERSION = "prompts-v2.1"
 
 
 class StageOutputError(ValueError):
@@ -65,13 +65,24 @@ METRIC_KEYS = list(METRIC_UNITS)
 
 EXTRACT_SYSTEM = f"""[stage:extract] You extract evidence from documents we fetched. You never compute,
 convert or estimate: copy numbers and units exactly as written. Every item needs a "quote" copied
-character-for-character from the source text (20-300 characters, one contiguous span that contains the
-number). Items whose quote is not found verbatim in the source are discarded automatically.
+from the source text (20-300 characters, one contiguous span; for figures it must contain the number).
+Copy the words as they appear — we check every quote against the fetched document and discard any
+that are not there; differences in spacing, line breaks, hyphenation and quote marks are tolerated.
+Long documents are sent as excerpts separated by "[…]": never join text across that mark.
 {GUARD}
 Allowed metric_key values: {", ".join(METRIC_KEYS)}.
 Energy units: MWh, GWh, TWh, kWh, PWh, GJ, TJ, PJ, MJ, EJ, MMBtu. Power units: kW, MW, GW.
 Currency units (US dollars only): USD, USD_thousands, USD_millions, USD_billions.
-Report company-wide totals only (not a single site or product); state the scope you see.
+"value" is a plain JSON number without thousands separators (1,053,479 -> 1053479).
+Data tables (sustainability/ESG indicator tables, often near the end of a report) are flattened to one
+line per row, e.g. "Metric FY26 FY25 FY24 ... Energy consumption 1,053,479 815,864 593,953". Return one
+figure per year column, taking the period from the column header and the unit from the row or section
+heading (e.g. "Energy (MWh)"); the quote is the row label and its numbers, copied as written.
+Report company-wide totals only (not a single site, product or customer); state the scope you see.
+Also return qualitative claims for each opinion category the text supports (up to 5 per category):
+frontier_acceleration = capabilities shipped, cost/efficiency gains; builder_velocity = launch cadence,
+facilities or capacity brought online, build times; policy_stance = stated positions on permitting,
+energy build-out, open source, regulation.
 JSON schema:
 {{"figures": [{{"source_id": str, "metric_key": str, "value": number, "unit": str,
   "period": str (e.g. "2024" or "FY2024"), "scope": str (<= 15 words), "quote": str}}],
@@ -95,7 +106,8 @@ def _rubric_block() -> str:
 
 
 JUDGE_SYSTEM = f"""[stage:judge] You score a company on three opinion categories against written
-rubrics, using ONLY the numbered evidence provided (each item is a verified verbatim quote).
+rubrics, using ONLY the numbered evidence provided (each item is a verified verbatim quote; items
+marked "measured figure" are verified reported numbers you may cite as supporting context).
 Interpolate between anchors (one decimal). If the evidence does not support a score, return
 "score": null with "insufficient_evidence": true — never guess and never default to the middle.
 Do not produce an overall score. {GUARD}
