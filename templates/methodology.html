@@ -78,7 +78,7 @@
             <li><span class="mono">05</span><span><b>Extract.</b> The model copies figures (value, unit, period) and claims, each with a quote. We keep a quote only if it appears verbatim in the fetched text, the number appears in the quote, the unit appears next to it, and the magnitude is physically plausible.</span></li>
             <li><span class="mono">06</span><span><b>Compute.</b> Units, average power, K, growth rates and the measured scores are computed in Python. If sources disagree for the same year, primary sources win and confidence drops.</span></li>
             <li><span class="mono">07</span><span><b>Judge.</b> The three opinion categories are scored against the rubrics from verified quotes only.</span></li>
-            <li><span class="mono">08</span><span><b>Aggregate and publish.</b> Weighted in code. A run only replaces the published one if it succeeds — and a run that doesn’t qualify for ranking never replaces one that does. Every run is kept, with timing, tokens and cost per stage.</span></li>
+            <li><span class="mono">08</span><span><b>Aggregate and publish.</b> Weighted in code. A run only replaces the published one if it succeeds — and a run below the ranking thresholds never replaces better data: a ranked run, an unranked run that scored more of the weight, or the legacy v0 assessment. Such runs are kept (admins see them; the page notes them) but not published. Every run is kept, with timing, tokens and cost per stage.</span></li>
         </ol>
     </section>
 

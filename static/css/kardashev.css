@@ -657,3 +657,7 @@ td.actions { text-align: right; white-space: nowrap; }
 
 @media (max-width: 640px) { .data-table--stack td { padding: .28rem .9rem; } .data-table--stack tr { padding: .45rem 0; } }
 @media (max-width: 760px) { .facts { grid-template-columns: minmax(0, 1fr); } }
+
+/* v2.2 — withheld (insufficient) runs note */
+.history__withheld { margin-top: .75rem; max-width: 46rem; display: flex; gap: .5rem; align-items: baseline; }
+.runstat--withheld { color: var(--dim); border: 1px dashed currentColor; padding: 0 .3rem; border-radius: 3px; font-size: .85em; }

@@ -254,7 +254,18 @@ def history(db: Session, company: Company) -> dict:
     if legacy:
         stamps = [r.judged_at for r in rows if r.judged_at and not is_placeholder(r)]
         legacy["judged_at"] = max(stamps) if stamps else None
+    # Later successful runs that were withheld by the publishing guard (below the ranking
+    # thresholds while better data exists). Shown publicly only as a dated, labelled note.
+    after = runs[cur].finished_at if runs else None
+    wq = db.query(JudgmentRun).filter(JudgmentRun.company_id == company.id, JudgmentRun.status == "succeeded",
+                                      JudgmentRun.published.isnot(True))
+    withheld = [r for r in wq.order_by(JudgmentRun.finished_at.desc(), JudgmentRun.id.desc()).all()
+                if after is None or (r.finished_at and _aware(r.finished_at) > _aware(after))]
     return {"runs": entries, "current": entries[cur] if entries else None,
+            "withheld": [{"finished_at": r.finished_at,
+                          "reason": (r.summary or {}).get("not_ranked_reason") or "below the ranking thresholds"}
+                         for r in withheld[:3]],
+            "withheld_total": len(withheld),
             "legacy": legacy if legacy and legacy.get("scores") else None,
             "spark_index": spark([e["run"].index_score for e in entries], 0, 10),
             "spark_k": spark([e["run"].k_equivalent for e in entries])}
@@ -279,6 +290,7 @@ def spark(values: list[float | None], lo: float | None = None, hi: float | None 
 
 
 RUN_STATUSES = ("queued", "running", "succeeded", "failed")
+RUN_FILTERS = RUN_STATUSES + ("withheld",)   # withheld = succeeded but not published
 
 
 def admin_runs_page(db: Session, company_id: int | None = None, status: str | None = None,
@@ -286,7 +298,9 @@ def admin_runs_page(db: Session, company_id: int | None = None, status: str | No
     q = db.query(JudgmentRun)
     if company_id is not None:
         q = q.filter(JudgmentRun.company_id == company_id)
-    if status:
+    if status == "withheld":
+        q = q.filter(JudgmentRun.status == "succeeded", JudgmentRun.published.isnot(True))
+    elif status:
         q = q.filter(JudgmentRun.status == status)
     total = q.count()
     pages = max(1, -(-total // per_page))

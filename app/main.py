@@ -747,13 +747,13 @@ def admin_runs_list(request: Request, company_id: str = None, status: str = None
                     db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
     """Every run, newest first, filterable by company and status. Polls itself while runs are active."""
     cid = int(company_id) if company_id and company_id.isdigit() else None
-    status = status if status in runs_svc.RUN_STATUSES else None
+    status = status if status in runs_svc.RUN_FILTERS else None
     data = runs_svc.admin_runs_page(db, company_id=cid, status=status, page=page)
     filters = {k: v for k, v in (("company_id", cid), ("status", status)) if v is not None}
     return templates.TemplateResponse(
         "admin_runs.html",
         {"request": request, "admin": current_admin, "version": __version__, "data": data, "runs": data["rows"],
-         "company_id": cid, "status": status, "statuses": runs_svc.RUN_STATUSES,
+         "company_id": cid, "status": status, "statuses": runs_svc.RUN_FILTERS,
          "companies": db.query(Company).order_by(Company.canonical_name).all(),
          "qs": urlencode(filters), "self_url": "/admin/runs?" + urlencode({**filters, "page": data["page"]}),
          **pop_flash(request)},

@@ -50,5 +50,5 @@
     {% if data.page < data.pages %}<a class="btn btn--sm btn--ghost" href="/admin/runs?{{ qs }}{{ '&' if qs }}page={{ data.page + 1 }}" rel="next">Older →</a>{% else %}<span></span>{% endif %}
 </nav>
 {% endif %}
-<p class="hint">Times are Pacific. ● = published · nr = not ranked. Raw JSON for any run: <span class="mono">/internal/runs/&lt;id&gt;</span>.</p>
+<p class="hint">Times are Pacific. ● = published · nr = not ranked · withheld = completed below the ranking thresholds and kept off the public page because better data exists (see the run’s publish note). Raw JSON for any run: <span class="mono">/internal/runs/&lt;id&gt;</span>.</p>
 {% endblock %}

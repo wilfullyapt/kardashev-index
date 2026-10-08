@@ -23,4 +23,5 @@
 
 {%- macro status(run) -%}
 <span class="runstat runstat--{{ run.status }}">{{ run.status }}</span>
+{%- if run.status == 'succeeded' and not run.published %} <span class="runstat runstat--withheld" title="{{ (run.summary or {}).get('publish_note') or 'not published' }}">withheld</span>{% endif -%}
 {%- endmacro -%}

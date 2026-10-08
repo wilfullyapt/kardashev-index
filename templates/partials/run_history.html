@@ -1,8 +1,8 @@
 {#- Public run history: published runs only (no failed runs, no cost). Labels are relative to the
     current run (N); links use the run's stable ordinal. -#}
 {%- set entries = hist.runs if hist else [] -%}
-{%- set viewing = v.entry.label if v.entry else ('N' if not v.historical else none) -%}
-{% if entries or (hist and hist.legacy) %}
+{%- set viewing = v.entry.label if v.entry else ('N' if entries and not v.historical else ('v0' if not v.historical else none)) -%}
+{% if entries or (hist and (hist.legacy or hist.withheld)) %}
 <section class="history" id="history" aria-labelledby="hist-h">
     <div class="history__head">
         <div>
@@ -54,5 +54,8 @@
         </tbody>
     </table>
     </div>
+    {% if hist.withheld %}{%- set w = hist.withheld[0] -%}
+    <p class="hint history__withheld"><span aria-hidden="true">◌</span> {{ 'A later run' if hist.withheld_total == 1 else (hist.withheld_total ~ ' later runs') }} ({{ w.finished_at|pt_date }}{% if hist.withheld_total > 1 %}, latest{% endif %}) completed but found too little verified data — {{ w.reason }} — so {{ 'it was' if hist.withheld_total == 1 else 'they were' }} not published. {{ 'Run N stays current.' if entries else ('The legacy v0 assessment stays on display.' if hist.legacy else '') }}</p>
+    {% endif %}
 </section>
 {% endif %}
