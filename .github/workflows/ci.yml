@@ -31,4 +31,4 @@ jobs:
           pip install -r requirements.txt
           pip install pytest
       - name: Test
-        run: pytest || echo "No tests or some failed"
+        run: pytest
