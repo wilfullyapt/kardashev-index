@@ -328,7 +328,9 @@ def admin_run_detail(db: Session, run: JudgmentRun) -> dict:
     return {"run": run, "company": company, "stages": stages, "cats": cats, "sources": sources,
             "evidence_total": ev_total, "evidence_verified": ev_ok, "public_url": public_url,
             "wait_ms": wait_ms, "active": active_run(db, run.company_id),
-            "metrics": db.query(Metric).filter(Metric.run_id == run.id).order_by(Metric.id).all()}
+            "metrics": db.query(Metric).filter(Metric.run_id == run.id).order_by(Metric.id).all(),
+            "evidence": db.query(Evidence).filter(Evidence.run_id == run.id).order_by(Evidence.id).all(),
+            "source_by_id": {s.id: s for s in sources}}
 
 
 def _aware(dt):

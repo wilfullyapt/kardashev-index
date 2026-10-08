@@ -117,6 +117,30 @@
 </section>
 {% endif %}
 
+{% if d.evidence %}
+<section class="admin-sec">
+    <p class="eyebrow">Extracted figures &amp; quotes ({{ d.evidence_verified }} verified / {{ d.evidence_total }} proposed)</p>
+    <div class="table-scroll">
+    <table class="data-table data-table--stack">
+        <thead><tr><th>Kept</th><th>Kind</th><th>Category / metric</th><th>Value</th><th>Quote</th><th>Source</th><th>Rejected because</th></tr></thead>
+        <tbody>
+        {% for e in d.evidence %}{%- set src = d.source_by_id.get(e.source_id) -%}
+        <tr>
+            <td data-label="Kept" class="mono"><span class="runstat runstat--{{ 'succeeded' if e.quote_verified else 'failed' }}">{{ 'yes' if e.quote_verified else 'no' }}</span></td>
+            <td data-label="Kind" class="mono dim">{{ e.kind }}</td>
+            <td data-label="Category" class="mono small">{{ e.metric_key or e.category or '—' }}{% if e.period %} · {{ e.period }}{% endif %}</td>
+            <td data-label="Value" class="mono small nowrap">{% if e.value is not none %}{{ '{:,.0f}'.format(e.value) if e.value == (e.value|round(0)) else '{:,.2f}'.format(e.value) }}{% else %}—{% endif %} {{ (e.unit or '')|replace('_', ' ') }}</td>
+            <td data-label="Quote" class="small muted wrap-any">{{ (e.quote or e.claim or '')|truncate(260) }}</td>
+            <td data-label="Source" class="mono small wrap-any">{% if src %}<a href="{{ src.final_url or src.url }}" target="_blank" rel="noopener nofollow noreferrer">#{{ src.id }}</a>{% else %}—{% endif %}</td>
+            <td data-label="Rejected" class="small wrap-any">{{ e.rejected_reason or '' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+{% endif %}
+
 {% if d.sources %}
 <section class="admin-sec">
     <p class="eyebrow">Sources (all candidates, including rejected)</p>
