@@ -20,7 +20,7 @@ Public read-only rankings of entities by alignment to **Effective Accelerationis
 ## Stack
 - Python + FastAPI
 - Postgres (Render)
-- Jinja2 + Tailwind
+- Jinja2 + a hand-rolled e/acc design system (`static/css/kardashev.css`, original procedural SVG art in `static/img/`)
 - SQLAlchemy + Alembic
 
 ## Deployment
