@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
+from starlette.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
 from passlib.context import CryptContext
@@ -509,4 +510,42 @@ def submit_suggestion(
     return templates.TemplateResponse(
         "suggest.html",
         {"request": request, "success": "Thank you — your suggestion has been submitted for review.", "version": __version__}
+    )
+
+
+# ===== ADMIN AUTH ROUTES =====
+
+@app.get("/admin/login")
+def admin_login_form(request: Request):
+    return templates.TemplateResponse("admin/login.html", {"request": request, "version": __version__})
+
+
+@app.post("/admin/login")
+def admin_login(
+    request: Request,
+    email: str = Form(...),
+    password: str = Form(...),
+):
+    if verify_admin(email, password):
+        request.session["admin"] = email
+        return RedirectResponse("/admin", status_code=302)
+    return templates.TemplateResponse(
+        "admin/login.html",
+        {"request": request, "error": "Invalid credentials", "version": __version__}
+    )
+
+
+@app.get("/admin/logout")
+def admin_logout(request: Request):
+    request.session.clear()
+    return RedirectResponse("/admin/login", status_code=302)
+
+
+@app.get("/admin")
+def admin_dashboard(request: Request, db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
+    # Simple admin dashboard - list pending suggestions
+    pending = db.query(Suggestion).filter(Suggestion.status == "pending").all()
+    return templates.TemplateResponse(
+        "admin.html",
+        {"request": request, "pending": pending, "admin": current_admin, "version": __version__}
     )

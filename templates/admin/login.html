@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Admin Login — Kardashev Index{% endblock %}
+
+{% block content %}
+<div class="max-w-md mx-auto mt-12">
+    <h1 class="text-3xl font-bold mb-8 text-center">Admin Login</h1>
+
+    <form method="post" action="/admin/login" class="space-y-4">
+        <div>
+            <label class="block text-sm mb-1">Email</label>
+            <input type="email" name="email" required class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded">
+        </div>
+        <div>
+            <label class="block text-sm mb-1">Password</label>
+            <input type="password" name="password" required class="w-full bg-zinc-900 border border-zinc-800 px-4 py-2 rounded">
+        </div>
+        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 py-2 rounded font-medium">Login</button>
+    </form>
+
+    {% if error %}
+    <div class="mt-4 text-red-400 text-sm">{{ error }}</div>
+    {% endif %}
+</div>
+{% endblock %}
