@@ -4,3 +4,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 ignore = ["E402", "E722", "I001", "B008", "RUF013", "BLE001", "S110"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
