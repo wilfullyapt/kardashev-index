@@ -212,8 +212,17 @@ async def health():
 
 @app.get("/internal/health")
 async def internal_health(hermes_key: str = None, request: Request = None):
-    if not get_hermes_user():
-        raise HTTPException(401, "Hermes access denied")
+    # Allow either Hermes key or logged-in admin
+    admin_user = None
+    try:
+        admin_user = get_current_admin(request)
+    except:
+        pass
+    
+    if not get_hermes_user(hermes_key) and not admin_user:
+        raise HTTPException(401, "Invalid Hermes API key or admin session")
+    
+    approver = admin_user or "hermes"
     return {
         "status": "ok",
         "service": "kardashev-index",
@@ -224,8 +233,17 @@ async def internal_health(hermes_key: str = None, request: Request = None):
 
 @app.get("/internal/stats")
 async def internal_stats(hermes_key: str = None, request: Request = None, db: Session = Depends(get_db)):
-    if not get_hermes_user():
-        raise HTTPException(401, "Hermes access denied")
+    # Allow either Hermes key or logged-in admin
+    admin_user = None
+    try:
+        admin_user = get_current_admin(request)
+    except:
+        pass
+    
+    if not get_hermes_user(hermes_key) and not admin_user:
+        raise HTTPException(401, "Invalid Hermes API key or admin session")
+    
+    approver = admin_user or "hermes"
     
     companies = db.query(Company).count()
     pending = db.query(Suggestion).filter(Suggestion.status == "pending").count()
@@ -243,8 +261,17 @@ async def internal_stats(hermes_key: str = None, request: Request = None, db: Se
 
 @app.get("/internal/recent-judgments")
 async def internal_recent_judgments(hermes_key: str = None, limit: int = 10, db: Session = Depends(get_db)):
-    if not get_hermes_user():
-        raise HTTPException(401, "Hermes access denied")
+    # Allow either Hermes key or logged-in admin
+    admin_user = None
+    try:
+        admin_user = get_current_admin(request)
+    except:
+        pass
+    
+    if not get_hermes_user(hermes_key) and not admin_user:
+        raise HTTPException(401, "Invalid Hermes API key or admin session")
+    
+    approver = admin_user or "hermes"
     
     recent = (
         db.query(Company, Score)
@@ -274,8 +301,17 @@ async def internal_logs(
     action: str = None,
     db: Session = Depends(get_db)
 ):
-    if not get_hermes_user():
-        raise HTTPException(401, "Hermes access denied")
+    # Allow either Hermes key or logged-in admin
+    admin_user = None
+    try:
+        admin_user = get_current_admin(request)
+    except:
+        pass
+    
+    if not get_hermes_user(hermes_key) and not admin_user:
+        raise HTTPException(401, "Invalid Hermes API key or admin session")
+    
+    approver = admin_user or "hermes"
     
     query = db.query(IngestLog).order_by(IngestLog.timestamp.desc())
     
@@ -301,42 +337,56 @@ async def internal_logs(
 @app.post("/internal/approve/{suggestion_id}")
 async def internal_approve_suggestion(
     suggestion_id: int,
+    request: Request,
     hermes_key: str = None,
     db: Session = Depends(get_db)
 ):
-    """Hermes-triggered approval of a pending suggestion (for E2E testing)."""
-    if not get_hermes_user():
-        raise HTTPException(401, "Hermes access denied")
-    
+    """Approve + ingest a pending suggestion. Supports both web admin and Hermes."""
+    approver = None
+    try:
+        approver = get_current_admin(request)
+    except:
+        pass
+
+    if not approver:
+        if not get_hermes_user(hermes_key):
+            raise HTTPException(401, "Invalid Hermes API key or admin session")
+        approver = "hermes"
+
     sug = db.query(Suggestion).get(suggestion_id)
     if not sug or sug.status != "pending":
         raise HTTPException(404, "Pending suggestion not found")
-    
+
     # Create company if needed
     canonical = sug.name.lower().replace(" ", "-")
     company = db.query(Company).filter(Company.canonical_name == canonical).first()
     if not company:
-        company = Company(canonical_name=canonical, industry="Test")
+        company = Company(canonical_name=canonical, industry="Unknown")
         db.add(company)
         db.commit()
         db.refresh(company)
-    
-    # Create placeholder scores (real scoring happens via LLM in approve flow)
+
+    # Create placeholder scores
     create_placeholder_scores(db, company.id)
-    
+
     sug.status = "approved"
-    sug.admin_id = "hermes"
-    db.add(IngestLog(company_id=company.id, suggestion_id=sug.id, action="hermes_approve", admin_id="hermes"))
+    sug.admin_id = approver
+    db.add(IngestLog(
+        company_id=company.id,
+        suggestion_id=sug.id,
+        action="approve_ingest",
+        admin_id=approver,
+        details={"source": "web" if approver != "hermes" else "hermes"}
+    ))
     db.commit()
-    
+
     return {
         "status": "approved",
         "suggestion_id": suggestion_id,
         "company_id": company.id,
-        "canonical_name": canonical
+        "canonical_name": canonical,
+        "approved_by": approver
     }
-
-
 @app.post("/internal/test-suggestion")
 async def internal_test_suggestion(
     name: str,
@@ -344,8 +394,17 @@ async def internal_test_suggestion(
     db: Session = Depends(get_db)
 ):
     """Submit a test suggestion for end-to-end Hermes testing."""
-    if not get_hermes_user():
-        raise HTTPException(401, "Hermes access denied")
+    # Allow either Hermes key or logged-in admin
+    admin_user = None
+    try:
+        admin_user = get_current_admin(request)
+    except:
+        pass
+    
+    if not get_hermes_user(hermes_key) and not admin_user:
+        raise HTTPException(401, "Invalid Hermes API key or admin session")
+    
+    approver = admin_user or "hermes"
     
     sug = Suggestion(name=name, status="pending")
     db.add(sug)
