@@ -500,7 +500,6 @@ def submit_suggestion(
     suggestion = Suggestion(
         name=name,
         domain=domain,
-        reason=reason,
         status="pending",
         submitted_at=datetime.now(UTC)
     )
