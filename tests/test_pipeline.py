@@ -1,4 +1,5 @@
 """End-to-end pipeline tests with a fake LLM and fake HTTP: queueing, every stage, publishing rules."""
+import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -130,7 +131,8 @@ def test_approve_returns_immediately_and_worker_runs_full_chain(client, db, use_
     assert fakes.FRONTIER_QUOTE in html
     assert "lobbied tirelessly" not in html and "9,000,000" not in html
     assert "Planned / under construction: 120 MW" in html
-    assert f"Run #{run_id}" in html
+    assert "Run N ·" in html and "/internal/runs" not in html and "/admin" not in html
+    assert not re.search(r"\$\d", html) and "Tokens" not in html  # no spend data on public pages
 
     # leaderboard
     home = client.get("/").text
@@ -188,7 +190,7 @@ def test_failed_rerun_preserves_published_run(client, db, use_deps):
     err = db.query(IngestLog).filter_by(action="judge_error").one()
     assert err.details["existing_scores_untouched"] is True and err.details["run_id"] == bad.id
     page = client.get(f"/companies/{c.id}").text
-    assert "Latest run failed" in page and "K&nbsp;0.184" in page
+    assert "newer measurement attempt did not complete" in page and "api_error" not in page and "K&nbsp;0.184" in page
 
 
 def test_budget_cap_fails_run_without_publishing(db, use_deps):
@@ -344,12 +346,18 @@ def test_admin_sees_runs_with_stage_timings(admin_client, db, use_deps):
     c = _company(db)
     r = admin_client.post(f"/internal/rerun-judgment/{c.id}", headers={"accept": "text/html"},
                           follow_redirects=False)
-    assert r.status_code == 303 and r.headers["location"] == "/admin#runs"
+    run_id = db.query(JudgmentRun).one().id
+    assert r.status_code == 303 and r.headers["location"] == f"/admin/runs/{run_id}"
+    detail = admin_client.get(r.headers["location"]).text
+    assert f"Queued run #{run_id}" in detail  # flash shown once
+    assert 'hx-trigger="every 3s"' in detail and "waiting for the worker" in detail
     page = admin_client.get("/admin").text
-    assert "queued" in page and 'hx-trigger="every 5s"' in page
+    assert "queued" in page and 'hx-trigger="every 4s"' in page and f"Queued run #{run_id}" not in page
     worker.process_next()
     part = admin_client.get("/admin/runs").text
     assert "succeeded" in part and "reso" in part and "hx-trigger" not in part
+    detail = admin_client.get(f"/admin/runs/{run_id}").text
+    assert "hx-trigger" not in detail and "pipeline-v2.0" in detail and "resolve" in detail
 
 
 def test_methodology_page_documents_weights_anchors_and_rubrics(client):
