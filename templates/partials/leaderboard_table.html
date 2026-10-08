@@ -14,7 +14,7 @@
         </thead>
         <tbody>
             {% for item in companies %}
-            {%- set pending = (item.scores.values()|selectattr('model', 'equalto', 'stub')|list|length) > 0 -%}
+            {%- set pending = item.status is defined and item.status != 'ranked' -%}
             <tr>
                 <td class="col-rank">
                     <span class="rank{% if loop.first and not q %} rank--1{% endif %}">
@@ -49,6 +49,11 @@
             {% endfor %}
         </tbody>
     </table>
+    {% elif awaiting %}
+    <div class="board-empty">
+        <p class="h3">No entity has a completed judgment{% if q %} matching “{{ q }}”{% endif %} yet.</p>
+        <p class="muted" style="margin:0">The entries below are approved and waiting on the judge.</p>
+    </div>
     {% else %}
     <div class="board-empty">
         {% if q %}
@@ -58,6 +63,16 @@
         <p class="h3">The board is waiting for its first builders.</p>
         <p class="muted" style="margin:0"><a href="/suggest">Suggest a company</a> to get the climb started.</p>
         {% endif %}
+    </div>
+    {% endif %}
+    {% if awaiting %}
+    <div class="awaiting">
+        <p class="awaiting__k"><span class="band band--pending">Awaiting judgment</span><span class="dim">Approved, not yet ranked</span></p>
+        <ul class="awaiting__list">
+            {% for item in awaiting %}
+            <li><a href="/companies/{{ item.company.id }}">{{ item.company.canonical_name }}</a><span class="dim">{{ item.company.industry or 'Industry unlisted' }}</span></li>
+            {% endfor %}
+        </ul>
     </div>
     {% endif %}
 </div>

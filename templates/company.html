@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 
 {% block title %}{{ company.canonical_name }} — Kardashev Index{% endblock %}
-{% block description %}{{ company.canonical_name }} on the Kardashev Index: overall e/acc alignment {{ overall }}/10, scored across AI acceleration, energy, competition, regulation, and builder culture.{% endblock %}
+{% block description %}{{ company.canonical_name }} on the Kardashev Index: {% if overall is not none %}overall e/acc alignment {{ overall }}/10, {% else %}awaiting judgment, {% endif %}scored across AI acceleration, energy, competition, regulation, and builder culture.{% endblock %}
 
 {% block content %}
 {%- set cats = ki.CAT_ORDER|select('in', scores)|list + scores.keys()|reject('in', ki.CAT_ORDER)|list -%}
-{%- set pending = (scores.values()|selectattr('model', 'equalto', 'stub')|list|length) > 0 -%}
+{%- if judgment_status is defined -%}{%- set pending = judgment_status != 'ranked' -%}{%- else -%}{%- set pending = (scores.values()|selectattr('model', 'equalto', 'stub')|list|length) > 0 -%}{%- endif -%}
 {%- set circ = 314.16 -%}
 {%- set frac = ([[overall or 0, 0]|max, 10]|min) / 10 -%}
 
@@ -23,7 +23,7 @@
             </div>
         </div>
         <div class="dossier__score">
-            <div class="gauge" role="img" aria-label="Overall score {{ overall }} out of 10">
+            <div class="gauge" role="img" aria-label="{% if overall is not none %}Overall score {{ overall }} out of 10{% else %}Awaiting judgment{% endif %}">
                 <svg viewBox="0 0 120 120" aria-hidden="true">
                     <defs>
                         <linearGradient id="gaugeGrad" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#9f7250"/><stop offset=".55" stop-color="#ddac67"/><stop offset="1" stop-color="#f38404"/></linearGradient>
@@ -33,7 +33,7 @@
                     <circle class="gauge__arc{{ ' gauge__arc--pending' if pending }}" cx="60" cy="60" r="50" stroke-dasharray="{{ '%.2f'|format(frac * circ) }} {{ circ }}"/>
                 </svg>
                 <div class="gauge__center">
-                    <span class="gauge__v">{{ overall }}</span>
+                    <span class="gauge__v">{{ overall if overall is not none else '—' }}</span>
                     <span class="gauge__k">Overall / 10</span>
                 </div>
             </div>
@@ -44,7 +44,7 @@
     {% if pending %}
     <div class="notice" role="note">
         <span aria-hidden="true">◌</span>
-        <span><strong>Awaiting full judgment.</strong> These are placeholder scores, set at the midpoint until the judge runs with evidence. Treat them as unranked.</span>
+        <span><strong>Awaiting full judgment.</strong> {% if scores %}These are placeholder or incomplete scores, so this entity is not ranked until the judge runs successfully.{% else %}This entity hasn’t been judged yet, so it is not ranked.{% endif %}</span>
     </div>
     {% endif %}
 
@@ -93,6 +93,6 @@
 
     <div class="meta-line">
         <span>Last updated {{ company.last_ingested_at.strftime('%Y-%m-%d') if company.last_ingested_at else '—' }}</span>
-        <span>Overall = mean of all judged dimensions</span>
+        <span>Overall = mean of the five judged dimensions · the judge’s overall read is shown, not counted</span>
     </div>
 {% endblock %}

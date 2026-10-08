@@ -444,3 +444,11 @@ textarea.input { resize: vertical; min-height: 7rem; line-height: 1.5; }
 .data-table td { padding: .7rem 1rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 .data-table td.empty { color: var(--dim); }
 .table-scroll { overflow-x: auto; }
+
+/* ---------- awaiting judgment (unranked) ---------- */
+.awaiting { border-top: 1px solid var(--line-2); padding: 1.1rem 1rem 1.2rem; display: flex; flex-wrap: wrap; gap: .75rem 2rem; align-items: baseline; }
+.awaiting__k { margin: 0; display: flex; gap: .9rem; align-items: baseline; font-size: .78rem; }
+.awaiting__list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem 1.6rem; }
+.awaiting__list li { display: flex; gap: .55rem; align-items: baseline; font-size: .8rem; }
+.awaiting__list a { font-family: var(--f-serif); font-weight: 600; font-size: 1.15rem; color: var(--bone); text-decoration: none; }
+.awaiting__list a:hover { color: var(--corona); }
