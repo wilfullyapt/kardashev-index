@@ -366,8 +366,8 @@ async def internal_approve_suggestion(
         db.commit()
         db.refresh(company)
 
-    # Create placeholder scores
-    create_placeholder_scores(db, company.id)
+    # Run real LLM judgment (falls back to placeholders if no Grok key)
+    run_llm_judgment(company.id, db)
 
     sug.status = "approved"
     sug.admin_id = approver
@@ -607,3 +607,51 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), current_adm
         "admin.html",
         {"request": request, "pending": pending, "admin": current_admin, "version": __version__}
     )
+
+
+# ===== RERUN JUDGMENT (Admin + Hermes only) =====
+
+@app.post("/internal/rerun-judgment/{company_id}")
+async def rerun_judgment(
+    company_id: int,
+    request: Request,
+    hermes_key: str = None,
+    db: Session = Depends(get_db)
+):
+    """Rerun LLM judgment for a company (overwrites existing scores). Admin or Hermes only."""
+    approver = None
+    try:
+        approver = get_current_admin(request)
+    except:
+        pass
+
+    if not approver:
+        if not get_hermes_user(hermes_key):
+            raise HTTPException(401, "Invalid Hermes API key or admin session")
+        approver = "hermes"
+
+    company = db.query(Company).get(company_id)
+    if not company:
+        raise HTTPException(404, "Company not found")
+
+    # Delete existing scores
+    db.query(Score).filter(Score.company_id == company_id).delete()
+
+    # Run fresh judgment
+    run_llm_judgment(company_id, db)
+
+    # Log the rerun
+    db.add(IngestLog(
+        company_id=company_id,
+        action="rerun_judgment",
+        admin_id=approver,
+        details={"source": "web" if approver != "hermes" else "hermes"}
+    ))
+    db.commit()
+
+    return {
+        "status": "rerun_complete",
+        "company_id": company_id,
+        "canonical_name": company.canonical_name,
+        "rerun_by": approver
+    }
