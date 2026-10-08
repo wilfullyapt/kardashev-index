@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+{%- import "partials/_admin.html" as adm -%}
+
+{% block title %}Runs — Admin — Kardashev Index{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+
+{% block content %}
+<div class="admin-top">
+    <div>
+        <p class="eyebrow">Control room</p>
+        <h1 class="h2" style="margin:0">Measurement runs</h1>
+    </div>
+    <div class="dossier__meta"><span class="chip">{{ data.total }} run{{ '' if data.total == 1 else 's' }}</span></div>
+</div>
+{{ adm.nav('runs') }}
+
+<form class="filters" method="get" action="/admin/runs">
+    <div class="field">
+        <label class="label" for="f-company">Company</label>
+        <select id="f-company" name="company_id" class="input input--sm">
+            <option value="">All companies</option>
+            {% for c in companies %}<option value="{{ c.id }}"{% if company_id == c.id %} selected{% endif %}>{{ c.official_name or c.canonical_name }} (#{{ c.id }})</option>{% endfor %}
+        </select>
+    </div>
+    <div class="field">
+        <label class="label" for="f-status">Status</label>
+        <select id="f-status" name="status" class="input input--sm">
+            <option value="">Any status</option>
+            {% for st in statuses %}<option value="{{ st }}"{% if status == st %} selected{% endif %}>{{ st }}</option>{% endfor %}
+        </select>
+    </div>
+    <div class="filters__go">
+        <button class="btn btn--sm">Filter</button>
+        {% if company_id or status %}<a class="btn btn--sm btn--ghost" href="/admin/runs">Clear</a>{% endif %}
+    </div>
+    {% if company_id %}
+    {%- set fc = companies|selectattr('id', 'equalto', company_id)|first -%}
+    {% if fc %}<div class="filters__go">{{ adm.rerun(fc.id, fc.official_name or fc.canonical_name, none, "Re-run " ~ (fc.official_name or fc.canonical_name)) }} <a class="btn btn--sm btn--ghost" href="/companies/{{ fc.id }}">Public page ↗</a></div>{% endif %}
+    {% endif %}
+</form>
+
+{% set poll_url = self_url %}
+{% set filtered = company_id or status %}
+{% include "partials/admin_runs.html" %}
+
+{% if data.pages > 1 %}
+<nav class="pager" aria-label="Pagination">
+    {% if data.page > 1 %}<a class="btn btn--sm btn--ghost" href="/admin/runs?{{ qs }}{{ '&' if qs }}page={{ data.page - 1 }}" rel="prev">← Newer</a>{% else %}<span></span>{% endif %}
+    <span class="mono dim small">Page {{ data.page }} of {{ data.pages }}</span>
+    {% if data.page < data.pages %}<a class="btn btn--sm btn--ghost" href="/admin/runs?{{ qs }}{{ '&' if qs }}page={{ data.page + 1 }}" rel="next">Older →</a>{% else %}<span></span>{% endif %}
+</nav>
+{% endif %}
+<p class="hint">Times are Pacific. ● = published · nr = not ranked. Raw JSON for any run: <span class="mono">/internal/runs/&lt;id&gt;</span>.</p>
+{% endblock %}

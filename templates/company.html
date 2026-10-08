@@ -3,7 +3,10 @@
 {%- set name = company.official_name or company.canonical_name -%}
 {%- set h = v.headline -%}
 
-{% block title %}{{ name }} — Kardashev Index{% endblock %}
+{%- set hlabel = v.entry.label if v.historical and v.entry else none -%}
+{% block title %}{{ name }}{% if hlabel %} · run {{ hlabel }}{% endif %} — Kardashev Index{% endblock %}
+{% block head %}{% if v.historical %}<meta name="robots" content="noindex">
+    <link rel="canonical" href="/companies/{{ company.id }}">{% endif %}{% endblock %}
 {% block description %}{{ name }} on the Kardashev Index: {% if run and run.ranked %}Index {{ '%.1f'|format(run.index_score) }}/10 at {{ '%.0f'|format((run.confidence or 0) * 100) }}% confidence{% if h %}, Kardashev-equivalent K {{ '%.3f'|format(h.k_equivalent) }}{% endif %}{% else %}not yet ranked{% endif %}. Measured from reported energy, compute and growth figures, plus labelled opinion categories.{% endblock %}
 
 {% block content %}
@@ -12,7 +15,16 @@
 {%- set circ = 314.16 -%}
 {%- set frac = ([[score or 0, 0]|max, 10]|min) / 10 -%}
 
+    {% if v.historical %}
+    <a href="/companies/{{ company.id }}" class="crumb"><span aria-hidden="true">←</span> Current dossier</a>
+    <div class="histbar" role="note">
+        <span class="runlbl{{ ' runlbl--v0' if hlabel == 'v0' }}">{{ hlabel }}</span>
+        <span>{% if hlabel == 'v0' %}<strong>Legacy v0 scores — superseded method.</strong> Read-only.{% else %}<strong>Historical run, read-only.</strong> Published {{ run.finished_at|pt_date }} on {{ run.pipeline_version }} · {{ run.weights_version }} · {{ run.rubric_version }}.{% endif %}
+        <a href="/companies/{{ company.id }}">See the current run{% if hist.current %} (N){% endif %} →</a></span>
+    </div>
+    {% else %}
     <a href="/" class="crumb"><span aria-hidden="true">←</span> The leaderboard</a>
+    {% endif %}
 
     <section class="dossier" aria-labelledby="co-name">
         <div>
@@ -45,9 +57,9 @@
             </div>
             {% if ranked %}
             {{ ki.band(score) }}
-            <span class="conf" title="Weighted confidence: how much of the Index rests on solid, recent, primary data">Confidence {{ '%.0f'|format(run.confidence * 100) }}%{% if v.previous %} · <span class="{{ 'up' if v.previous.delta > 0 else 'down' if v.previous.delta < 0 else '' }}">{{ '%+.1f'|format(v.previous.delta) }} vs run {{ v.previous.run_id }}</span>{% endif %}</span>
+            <span class="conf" title="Weighted confidence: how much of the Index rests on solid, recent, primary data">Confidence {{ '%.0f'|format(run.confidence * 100) }}%{% if v.previous %} · <span class="{{ 'up' if v.previous.delta >= 0.05 else 'down' if v.previous.delta <= -0.05 else '' }}">{{ '%+.1f'|format(v.previous.delta) if v.previous.delta|abs >= 0.05 else '±0.0' }} vs {{ v.previous.label }}</span>{% endif %}</span>
             {% else %}
-            <span class="band band--pending">{{ 'Insufficient data' if run else 'Awaiting measurement' }}</span>
+            <span class="band band--pending">{{ 'Insufficient data' if run else ('Legacy · superseded' if hlabel == 'v0' else 'Awaiting measurement') }}</span>
             {% endif %}
         </div>
     </section>
@@ -66,13 +78,13 @@
     {% endif %}
 
     {% if v.active %}
-    <div class="notice" role="status"><span aria-hidden="true">◌</span><span><strong>Measurement run {{ v.active.status }}.</strong> {% if v.active.current_stage %}Stage: {{ v.active.current_stage }}. {% endif %}The page updates when it finishes; published figures stay as they are unless the new run succeeds.</span></div>
+    <div class="notice" role="status"><span aria-hidden="true">◌</span><span><strong>New measurement {{ 'in progress' if v.active.status == 'running' else 'queued' }}.</strong> {% if v.active.current_stage %}Stage: {{ v.active.current_stage }}. {% endif %}Runs take a few minutes — reload later. Published figures stay as they are unless the new run succeeds.</span></div>
     {% endif %}
     {% if run and not ranked %}
     <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Not ranked: {{ (run.summary or {}).get('not_ranked_reason') or 'insufficient data' }}.</strong> We publish what was verified, but an entity needs at least {{ '%.0f'|format(cfg_cov * 100) if cfg_cov is defined else '60' }}% of the weight scored — mostly from measured figures — before it is ranked. Missing data is never filled with a default.</span></div>
     {% endif %}
     {% if v.last_failed %}
-    <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Latest run failed</strong> ({{ v.last_failed.error_type or 'error' }}{% if v.last_failed.finished_at %}, {{ v.last_failed.finished_at.strftime('%Y-%m-%d') }}{% endif %}). {{ 'The figures below are from the last successful run.' if run else 'Nothing has been published for this entity yet.' }}</span></div>
+    <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>A newer measurement attempt did not complete</strong>{% if v.last_failed.finished_at %} ({{ v.last_failed.finished_at|pt_date }}){% endif %}. {{ 'The figures below are from the last successful run.' if run else 'Nothing has been published for this entity yet.' }}</span></div>
     {% endif %}
 
     {% if run %}
@@ -87,11 +99,14 @@
             <span class="mono dim profile__w">{{ '%.0f'|format(c.weight * 100) }}%</span>
             {{ ki.bar(c.score, c.score is none, c.meta.label) }}
             <span class="profile__v">{{ '%.1f'|format(c.score) if c.score is not none else '—' }}</span>
+            <span class="mono profile__d {{ 'up' if c.delta and c.delta >= 0.05 else 'down' if c.delta and c.delta <= -0.05 else 'dim' }}" title="{% if v.prev_entry %}change vs {{ v.prev_entry.label }}{% else %}no previous run{% endif %}">{% if c.delta is not none %}{{ '%+.1f'|format(c.delta) if c.delta|abs >= 0.05 else '0.0' }}{% elif v.prev_entry and c.score is not none and c.prev is none %}new{% else %}&nbsp;{% endif %}</span>
             <span class="mono dim profile__c" title="confidence">{{ '%.0f'|format((c.confidence or 0) * 100) ~ '%' if c.score is not none else 'no data' }}</span>
         </div>
         {% endfor %}
-        <p class="dim profile__foot">Index = weighted mean of the scored categories (weights renormalized over what was scored) · coverage {{ '%.0f'|format((run.coverage or 0) * 100) }}% · confidence {{ '%.0f'|format((run.confidence or 0) * 100) }}%. No “overall” is asked of the model.</p>
+        <p class="dim profile__foot">{% if v.prev_entry %}Δ = change vs run {{ v.prev_entry.label }} ({{ v.prev_entry.run.finished_at|pt_date }}). {% endif %}Index = weighted mean of the scored categories (weights renormalized over what was scored) · coverage {{ '%.0f'|format((run.coverage or 0) * 100) }}% · confidence {{ '%.0f'|format((run.confidence or 0) * 100) }}%. No “overall” is asked of the model.</p>
     </section>
+
+    {% include "partials/run_history.html" %}
 
     <h2 class="h3 sec-h">Measured <span class="dim">— computed in code from reported figures</span></h2>
     <div class="cards">
@@ -136,15 +151,15 @@
     <section class="admin-sec" aria-labelledby="figs">
         <h2 id="figs" class="h3 sec-h">Reported figures</h2>
         <div class="table-scroll">
-        <table class="data-table">
+        <table class="data-table data-table--stack">
             <thead><tr><th>Metric</th><th class="num">Value</th><th>Period</th><th>Source</th></tr></thead>
             <tbody>
                 {% for f in v.figures %}
                 <tr>
-                    <td>{{ f.label }}</td>
-                    <td class="mono num">{{ '{:,.0f}'.format(f.value) if f.value == (f.value|round(0)) else '{:,.2f}'.format(f.value) }} {{ f.unit|replace('_', ' ') }}</td>
-                    <td class="mono dim">{{ f.period or '—' }}</td>
-                    <td>{% if f.evidence and f.evidence.url %}<a href="{{ f.evidence.url }}" target="_blank" rel="noopener nofollow" class="mono" style="font-size:.76rem">{{ f.evidence.domain }} ↗</a>{% if f.evidence.kind == 'filing' %} <span class="dim mono" style="font-size:.7rem">SEC XBRL</span>{% endif %}{% else %}—{% endif %}</td>
+                    <td data-label="Metric">{{ f.label }}</td>
+                    <td data-label="Value" class="mono num">{{ '{:,.0f}'.format(f.value) if f.value == (f.value|round(0)) else '{:,.2f}'.format(f.value) }} {{ f.unit|replace('_', ' ') }}</td>
+                    <td data-label="Period" class="mono dim">{{ f.period or '—' }}</td>
+                    <td data-label="Source">{% if f.evidence and f.evidence.url %}<a href="{{ f.evidence.url }}" target="_blank" rel="noopener nofollow" class="mono" style="font-size:.76rem">{{ f.evidence.domain }} ↗</a>{% if f.evidence.kind == 'filing' %} <span class="dim mono" style="font-size:.7rem">SEC XBRL</span>{% endif %}{% else %}—{% endif %}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -160,7 +175,7 @@
             {% for s in v.sources %}
             <li>
                 <a href="{{ s.final_url or s.url }}" target="_blank" rel="noopener nofollow">{{ (s.title or ki.pretty(s.final_url or s.url))|truncate(110) }}</a>
-                <span class="dim mono">{{ ki.pretty(s.final_url or s.url)|truncate(60) }} · fetched {{ s.fetched_at.strftime('%Y-%m-%d') if s.fetched_at else '—' }}{% if s.sha256 %} · sha256 {{ s.sha256[:12] }}{% endif %}{% if s.is_primary %} · primary{% endif %}</span>
+                <span class="dim mono">{{ ki.pretty(s.final_url or s.url)|truncate(60) }} · fetched {{ s.fetched_at|pt_date }}{% if s.sha256 %} · sha256 {{ s.sha256[:12] }}{% endif %}{% if s.is_primary %} · primary{% endif %}</span>
             </li>
             {% endfor %}
         </ol>
@@ -169,22 +184,22 @@
     </section>
 
     <details class="runlog">
-        <summary>Run #{{ run.id }} · {{ run.finished_at.strftime('%Y-%m-%d %H:%M UTC') if run.finished_at else '—' }} · {{ '%.0f'|format((run.duration_ms or 0) / 1000) }} s · {{ v.stages|length }} stages{% if run.cost_usd is not none %} · ${{ '%.2f'|format(run.cost_usd) }}{% endif %} · {{ run.model_returned or run.model }}</summary>
+        <summary>Run {{ (v.entry.label if v.entry else 'N') }} · {{ run.finished_at|pt }} · {{ run.duration_ms|dur }} · {{ v.stages|length }} stages · {{ run.model_returned or run.model }}</summary>
         <div class="table-scroll">
-        <table class="data-table">
-            <thead><tr><th>Stage</th><th>Status</th><th class="num">Time</th><th class="num">Tokens in/out</th><th class="num">Searches</th><th class="num">Cost</th></tr></thead>
+        <table class="data-table data-table--stack">
+            <thead><tr><th>Stage</th><th>Status</th><th class="num">Time</th><th class="num">Web searches</th></tr></thead>
             <tbody>
                 {% for s in v.stages %}
-                <tr><td>{{ s.stage }}{% if s.attempt > 1 %} <span class="dim">(attempt {{ s.attempt }})</span>{% endif %}</td><td class="mono">{{ s.status }}</td><td class="mono num">{{ '%.1f'|format((s.duration_ms or 0) / 1000) }} s</td><td class="mono num dim">{{ s.input_tokens or '—' }} / {{ s.output_tokens or '—' }}</td><td class="mono num dim">{{ s.tool_calls or '—' }}</td><td class="mono num dim">{{ '$%.3f'|format(s.cost_usd) if s.cost_usd else '—' }}</td></tr>
+                <tr><td data-label="Stage">{{ s.stage }}{% if s.attempt > 1 %} <span class="dim">(attempt {{ s.attempt }})</span>{% endif %}</td><td data-label="Status" class="mono">{{ s.status }}</td><td data-label="Time" class="mono num">{{ s.duration_ms|dur }}</td><td data-label="Web searches" class="mono num dim">{{ s.tool_calls or '—' }}</td></tr>
                 {% endfor %}
             </tbody>
         </table>
         </div>
-        <p class="dim mono" style="font-size:.7rem">{{ run.pipeline_version }} · {{ run.prompt_version }} · {{ run.rubric_version }} · {{ run.weights_version }} · bundle {{ (run.prompt_hash or '')[:12] }}</p>
+        <p class="dim mono runlog__ver">{{ run.pipeline_version }} · {{ run.prompt_version }} · {{ run.rubric_version }} · {{ run.weights_version }} · bundle {{ (run.prompt_hash or '')[:12] }}{% if run.code_version %} · code {{ run.code_version[:7] }}{% endif %}</p>
     </details>
 
     {% else %}
-        {%- set lg = v.legacy -%}
+        {%- set lg = hist.legacy if hist else none -%}
         {% if lg and lg.scores %}
         <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Legacy v0 assessment (superseded method).</strong> These are the original single-prompt model opinions, kept for reference. They are not part of the Index and are not ranked; a measured run replaces them.</span></div>
         <section class="profile" aria-label="Legacy v0 scores">
@@ -197,13 +212,14 @@
             </div>
             {% endfor %}
         </section>
-        {% elif not v.active %}
+        {% elif not v.active and not v.historical %}
         <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Not measured yet.</strong> This entity has been approved but no measurement run has completed.</span></div>
         {% endif %}
+        {% include "partials/run_history.html" %}
     {% endif %}
 
     <div class="meta-line">
-        <span>Last updated {{ company.last_ingested_at.strftime('%Y-%m-%d') if company.last_ingested_at else '—' }}</span>
+        <span>{% if v.historical and run %}Run published {{ run.finished_at|pt_date }}{% else %}Last updated {{ company.last_ingested_at|pt_date }}{% endif %}</span>
         <span><a href="/methodology">How the Index is computed</a></span>
     </div>
 {% endblock %}

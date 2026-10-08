@@ -1,0 +1,26 @@
+{#- Admin-only helpers. Never imported by public templates. -#}
+
+{%- macro nav(active) -%}
+<nav class="admin-nav" aria-label="Admin">
+    <a href="/admin" class="admin-nav__a"{% if active == 'dash' %} aria-current="page"{% endif %}>Dashboard</a>
+    <a href="/admin/runs" class="admin-nav__a"{% if active == 'runs' %} aria-current="page"{% endif %}>All runs</a>
+    <a href="/admin/logout" class="admin-nav__a">Log out</a>
+</nav>
+{%- endmacro -%}
+
+{#- Re-run a company with the current pipeline/prompt/rubric/weights versions. Confirmation guards
+    the paid API call; the server answers 409 → redirect to the active run if one exists. -#}
+{%- macro rerun(company_id, name, active=none, label="Re-run", cls="btn btn--sm btn--ghost") -%}
+{%- if active -%}
+<a class="{{ cls }}" href="/admin/runs/{{ active.id }}" title="A run is already {{ active.status }}">Run #{{ active.id }} {{ active.status }}…</a>
+{%- else -%}
+<form action="/internal/rerun-judgment/{{ company_id }}" method="post" class="inline"
+      onsubmit="return confirm('Re-run {{ name|replace("'", "")|e }} with the current pipeline versions?\n\nThis calls the paid xAI API (typically $0.15–0.30, capped per run). Published data changes only if the new run succeeds.')">
+    <button class="{{ cls }}">{{ label }}</button>
+</form>
+{%- endif -%}
+{%- endmacro -%}
+
+{%- macro status(run) -%}
+<span class="runstat runstat--{{ run.status }}">{{ run.status }}</span>
+{%- endmacro -%}

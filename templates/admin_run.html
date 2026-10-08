@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+{%- import "partials/_admin.html" as adm -%}
+{%- set run = d.run -%}
+{%- set c = d.company -%}
+{%- set name = c.official_name or c.canonical_name -%}
+{%- set live = run.status in ('queued', 'running') -%}
+
+{% block title %}Run #{{ run.id }} · {{ name }} — Admin — Kardashev Index{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+
+{% block content %}
+<div class="admin-top">
+    <div>
+        <p class="eyebrow">Run #{{ run.id }} · {{ run.trigger or 'run' }} by {{ run.triggered_by or '—' }}</p>
+        <h1 class="h2" style="margin:0"><a href="/admin/runs?company_id={{ c.id }}" class="plain">{{ name }}</a></h1>
+    </div>
+    <div class="dossier__meta">
+        {{ adm.rerun(c.id, name, d.active, "Re-run with current versions", "btn btn--sm") }}
+        <a class="btn btn--sm btn--ghost" href="/internal/runs/{{ run.id }}">JSON</a>
+        {% if d.public_url %}<a class="btn btn--sm btn--ghost" href="{{ d.public_url }}">Public view ↗</a>{% endif %}
+    </div>
+</div>
+{{ adm.nav('runs') }}
+
+<div id="run-live"{% if live %} hx-get="/admin/runs/{{ run.id }}" hx-select="#run-live" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %} aria-live="polite">
+    <section class="runhead">
+        <div class="runhead__status">
+            {{ adm.status(run) }}
+            {% if live %}<span class="mono small">{{ ('stage: ' ~ run.current_stage) if run.current_stage else 'waiting for the worker' }}…</span>{% endif %}
+            {% if run.status == 'succeeded' %}<span class="mono small">{{ 'published' if run.published else 'not published' }} · {{ 'ranked' if run.ranked else 'not ranked' }}</span>{% endif %}
+        </div>
+        <div class="stagebar stagebar--lg">{% for s in d.stages %}<span class="stagebar__s stagebar__s--{{ s.status }}">{{ s.stage }}{% if s.attempt > 1 %}×{{ s.attempt }}{% endif %} {{ s.duration_ms|dur if s.duration_ms is not none else '…' }}</span>{% else %}<span class="dim small">No stages yet.</span>{% endfor %}</div>
+        {% if run.error_type %}
+        <div class="flash flash--err runhead__err"><span class="flash__tag">{{ run.error_type }}</span><span class="wrap-any">{{ run.error_message or '' }}</span></div>
+        {% endif %}
+        {% if run.summary and run.summary.publish_note %}<p class="hint">{{ run.summary.publish_note }}</p>{% endif %}
+    </section>
+
+    <div class="facts">
+        <dl class="facts__g">
+            <dt>Queued</dt><dd class="mono">{{ run.queued_at|pt('%Y-%m-%d %H:%M:%S') }}</dd>
+            <dt>Started</dt><dd class="mono">{{ run.started_at|pt('%Y-%m-%d %H:%M:%S') }}{% if d.wait_ms is not none %} <span class="dim">(waited {{ d.wait_ms|dur }})</span>{% endif %}</dd>
+            <dt>Finished</dt><dd class="mono">{{ run.finished_at|pt('%Y-%m-%d %H:%M:%S') }}</dd>
+            <dt>Duration</dt><dd class="mono">{{ run.duration_ms|dur }}</dd>
+            <dt>Attempt</dt><dd class="mono">{{ run.attempt }}{% if run.worker_id %} · <span class="dim">{{ run.worker_id }}</span>{% endif %}</dd>
+        </dl>
+        <dl class="facts__g">
+            <dt>Pipeline</dt><dd class="mono">{{ run.pipeline_version or '—' }}</dd>
+            <dt>Prompts</dt><dd class="mono">{{ run.prompt_version or '—' }} <span class="dim">bundle {{ (run.prompt_hash or '—')[:12] }}</span></dd>
+            <dt>Rubrics / weights</dt><dd class="mono">{{ run.rubric_version or '—' }} · {{ run.weights_version or '—' }}</dd>
+            <dt>Code</dt><dd class="mono">{% if run.code_version %}{{ run.code_version[:12] }}{% else %}<span class="dim">unknown (set by RENDER_GIT_COMMIT)</span>{% endif %}</dd>
+            <dt>Model</dt><dd class="mono">{{ run.model or '—' }}{% if run.model_returned and run.model_returned != run.model %} → {{ run.model_returned }}{% endif %}</dd>
+        </dl>
+        <dl class="facts__g">
+            <dt>Cost</dt><dd class="mono">{{ '$%.4f'|format(run.cost_usd) if run.cost_usd is not none else '—' }} <span class="dim">of {{ '$%.2f'|format(run.budget_usd) if run.budget_usd is not none else '—' }} budget</span></dd>
+            <dt>Tokens in / out</dt><dd class="mono">{{ run.input_tokens or 0 }} / {{ run.output_tokens or 0 }}{% if run.reasoning_tokens %} <span class="dim">(+{{ run.reasoning_tokens }} reasoning)</span>{% endif %}</dd>
+            <dt>Web searches</dt><dd class="mono">{{ run.tool_calls or 0 }}</dd>
+            <dt>Sources</dt><dd class="mono">{{ d.sources|selectattr('status', 'equalto', 'ok')|list|length }} ok / {{ d.sources|length }} fetched</dd>
+            <dt>Quotes</dt><dd class="mono">{{ d.evidence_verified }} verified / {{ d.evidence_total }} proposed</dd>
+        </dl>
+        <dl class="facts__g">
+            <dt>Index</dt><dd class="mono">{% if run.index_score is not none %}{{ '%.2f'|format(run.index_score) }} <span class="dim">(measured {{ '%.2f'|format(run.measured_score) if run.measured_score is not none else '—' }} · opinion {{ '%.2f'|format(run.judged_score) if run.judged_score is not none else '—' }})</span>{% else %}—{% endif %}</dd>
+            <dt>K-equivalent</dt><dd class="mono">{{ '%.3f'|format(run.k_equivalent) if run.k_equivalent is not none else '—' }}</dd>
+            <dt>Coverage / conf.</dt><dd class="mono">{{ '%.0f%%'|format(run.coverage * 100) if run.coverage is not none else '—' }} · {{ '%.0f%%'|format(run.confidence * 100) if run.confidence is not none else '—' }}</dd>
+            <dt>Ranked / published</dt><dd class="mono">{{ run.ranked if run.ranked is not none else '—' }} · {{ run.published if run.published is not none else '—' }}</dd>
+            {% if run.summary and run.summary.not_ranked_reason %}<dt>Not ranked</dt><dd>{{ run.summary.not_ranked_reason }}</dd>{% endif %}
+        </dl>
+    </div>
+
+    <section class="admin-sec">
+        <p class="eyebrow">Stages</p>
+        <div class="table-scroll">
+        <table class="data-table data-table--stack">
+            <thead><tr><th>#</th><th>Stage</th><th>Status</th><th>Started (PT)</th><th class="num">Time</th><th class="num">Tokens in/out</th><th class="num">Searches</th><th class="num">Cost</th><th>Error / detail</th></tr></thead>
+            <tbody>
+            {% for s in d.stages %}
+            <tr>
+                <td data-label="#" class="mono dim">{{ s.seq }}</td>
+                <td data-label="Stage">{{ s.stage }}{% if s.attempt > 1 %} <span class="dim">(attempt {{ s.attempt }})</span>{% endif %}{% if s.model %}<div class="dim small mono">{{ s.model }}</div>{% endif %}</td>
+                <td data-label="Status" class="mono"><span class="runstat runstat--{{ s.status }}">{{ s.status }}</span></td>
+                <td data-label="Started" class="mono dim nowrap">{{ s.started_at|pt('%H:%M:%S') }}</td>
+                <td data-label="Time" class="mono num">{{ s.duration_ms|dur }}</td>
+                <td data-label="Tokens" class="mono num dim">{{ s.input_tokens or '—' }} / {{ s.output_tokens or '—' }}</td>
+                <td data-label="Searches" class="mono num dim">{{ s.tool_calls or '—' }}</td>
+                <td data-label="Cost" class="mono num dim">{{ '$%.4f'|format(s.cost_usd) if s.cost_usd else '—' }}</td>
+                <td data-label="Detail" class="small">{% if s.error %}<div class="err wrap-any">{{ s.error }}</div>{% endif %}{% if s.detail %}<details><summary class="mono">detail</summary><pre class="json">{{ s.detail|tojson(indent=1) }}</pre></details>{% endif %}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="9" class="empty">{{ 'Waiting for the worker to pick this run up.' if live else 'No stages recorded.' }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        </div>
+    </section>
+</div>
+
+{% if d.cats %}
+<section class="admin-sec">
+    <p class="eyebrow">Category scores</p>
+    <div class="table-scroll">
+    <table class="data-table data-table--stack">
+        <thead><tr><th>Category</th><th>Family</th><th class="num">Weight</th><th class="num">Score</th><th class="num">Conf.</th><th>Rationale</th></tr></thead>
+        <tbody>
+        {% for cs in d.cats %}
+        <tr>
+            <td data-label="Category">{{ meth.BY_KEY[cs.category].label if cs.category in meth.BY_KEY else cs.category }}</td>
+            <td data-label="Family" class="mono dim">{{ cs.family }}</td>
+            <td data-label="Weight" class="mono num">{{ '%.0f%%'|format(cs.weight * 100) if cs.weight is not none else '—' }}</td>
+            <td data-label="Score" class="mono num">{{ '%.1f'|format(cs.score) if cs.score is not none else 'insufficient' }}</td>
+            <td data-label="Confidence" class="mono num dim">{{ '%.0f%%'|format(cs.confidence * 100) if cs.confidence is not none else '—' }}</td>
+            <td data-label="Rationale" class="small muted">{{ cs.rationale or '' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+{% endif %}
+
+{% if d.sources %}
+<section class="admin-sec">
+    <p class="eyebrow">Sources (all candidates, including rejected)</p>
+    <div class="table-scroll">
+    <table class="data-table data-table--stack">
+        <thead><tr><th>Status</th><th>URL</th><th>Origin</th><th class="num">HTTP</th><th>Fetched (PT)</th><th>Reason</th></tr></thead>
+        <tbody>
+        {% for s in d.sources %}
+        <tr>
+            <td data-label="Status" class="mono"><span class="runstat runstat--{{ 'succeeded' if s.status == 'ok' else 'failed' }}">{{ s.status }}</span>{% if s.is_primary %} <span class="dim small">primary</span>{% endif %}</td>
+            <td data-label="URL" class="wrap-any small"><a href="{{ s.final_url or s.url }}" target="_blank" rel="noopener nofollow noreferrer">{{ s.title or s.url }}</a><div class="dim mono">{{ s.final_url or s.url }}</div></td>
+            <td data-label="Origin" class="mono dim">{{ s.origin or '—' }}</td>
+            <td data-label="HTTP" class="mono num dim">{{ s.http_status or '—' }}</td>
+            <td data-label="Fetched" class="mono dim nowrap">{{ s.fetched_at|pt('%H:%M:%S') }}</td>
+            <td data-label="Reason" class="small muted wrap-any">{{ s.reject_reason or '' }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    </div>
+</section>
+{% endif %}
+
+<p class="hint">Times are Pacific. <a href="/admin/runs?company_id={{ c.id }}">All runs for {{ name }}</a> · <a href="/companies/{{ c.id }}">public page</a>.</p>
+{% endblock %}

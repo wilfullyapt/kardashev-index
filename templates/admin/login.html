@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 
 {% block title %}Admin Login — Kardashev Index{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
 
 {% block content %}
 <div class="login">
@@ -9,6 +10,7 @@
     <h1 class="h2" style="text-align:center;margin-bottom:2rem">Admin login</h1>
 
     <form method="post" action="/admin/login" class="panel stack">
+        <input type="hidden" name="next" value="{{ next or '/admin' }}">
         <div class="field">
             <label class="label" for="a-email">Email</label>
             <input id="a-email" type="email" name="email" required class="input" autocomplete="username">

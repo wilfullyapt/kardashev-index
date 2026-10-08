@@ -1,21 +1,24 @@
+{%- import "partials/_admin.html" as adm -%}
 {%- set any_active = runs|selectattr('run.status', 'in', ['queued', 'running'])|list|length > 0 -%}
-<div id="admin-runs"{% if any_active %} hx-get="/admin/runs" hx-trigger="every 5s" hx-swap="outerHTML"{% endif %}>
+<div id="admin-runs"{% if any_active and poll_url %} hx-get="{{ poll_url }}" hx-select="#admin-runs" hx-trigger="every 4s" hx-swap="outerHTML"{% endif %} aria-live="polite">
     <div class="table-scroll">
-    <table class="data-table runs">
-        <thead><tr><th>Run</th><th>Entity</th><th>Status</th><th>Stages (seconds)</th><th class="num">Time</th><th class="num">Cost</th><th class="num">Index</th></tr></thead>
+    <table class="data-table data-table--stack runs">
+        <thead><tr><th>Run</th><th>Entity</th><th>Status</th><th>Stages (seconds)</th><th>Queued (PT)</th><th class="num">Time</th><th class="num">Cost</th><th class="num">Index</th><th>Versions</th></tr></thead>
         <tbody>
         {% for r in runs %}{%- set run = r.run -%}
         <tr>
-            <td class="mono"><a href="/internal/runs/{{ run.id }}">#{{ run.id }}</a><div class="dim" style="font-size:.68rem">{{ run.trigger }} · {{ run.triggered_by }}{% if run.attempt and run.attempt > 1 %} · attempt {{ run.attempt }}{% endif %}</div></td>
-            <td><a href="/companies/{{ run.company_id }}">{{ r.name }}</a></td>
-            <td class="mono"><span class="runstat runstat--{{ run.status }}">{{ run.status }}</span>{% if run.current_stage %}<div class="dim" style="font-size:.68rem">{{ run.current_stage }}…</div>{% endif %}{% if run.error_type %}<div class="dim" style="font-size:.68rem" title="{{ run.error_message }}">{{ run.error_type }}</div>{% endif %}</td>
-            <td><div class="stagebar">{% for s in r.stages %}<span class="stagebar__s stagebar__s--{{ s.status }}" title="{{ s.stage }} · {{ s.status }}{% if s.error %} · {{ s.error[:120] }}{% endif %}">{{ s.stage[:4] }} {{ '%.0f'|format((s.duration_ms or 0) / 1000) if s.duration_ms is not none else '…' }}</span>{% endfor %}</div></td>
-            <td class="mono num dim">{{ '%.0f s'|format(run.duration_ms / 1000) if run.duration_ms else '—' }}</td>
-            <td class="mono num dim">{{ '$%.3f'|format(run.cost_usd) if run.cost_usd is not none else '—' }}</td>
-            <td class="mono num">{% if run.index_score is not none %}{{ '%.1f'|format(run.index_score) }}{% if not run.ranked %} <span class="dim">nr</span>{% endif %}{% if run.published %} <span title="published">●</span>{% endif %}{% else %}—{% endif %}</td>
+            <td data-label="Run" class="mono"><a href="/admin/runs/{{ run.id }}">#{{ run.id }}</a><div class="dim small">{{ run.trigger }} · {{ run.triggered_by }}{% if run.attempt and run.attempt > 1 %} · attempt {{ run.attempt }}{% endif %}</div></td>
+            <td data-label="Entity"><a href="/admin/runs?company_id={{ run.company_id }}">{{ r.name }}</a></td>
+            <td data-label="Status" class="mono">{{ adm.status(run) }}{% if run.current_stage %}<div class="dim small">{{ run.current_stage }}…</div>{% endif %}{% if run.error_type %}<div class="dim small" title="{{ run.error_message }}">{{ run.error_type }}</div>{% endif %}</td>
+            <td data-label="Stages"><div class="stagebar">{% for s in r.stages %}<span class="stagebar__s stagebar__s--{{ s.status }}" title="{{ s.stage }} · {{ s.status }}{% if s.error %} · {{ s.error[:120] }}{% endif %}">{{ s.stage[:4] }} {{ '%.0f'|format((s.duration_ms or 0) / 1000) if s.duration_ms is not none else '…' }}</span>{% else %}<span class="dim small">—</span>{% endfor %}</div></td>
+            <td data-label="Queued" class="mono dim nowrap">{{ run.queued_at|pt }}</td>
+            <td data-label="Time" class="mono num dim nowrap">{{ run.duration_ms|dur }}</td>
+            <td data-label="Cost" class="mono num dim">{{ '$%.3f'|format(run.cost_usd) if run.cost_usd is not none else '—' }}</td>
+            <td data-label="Index" class="mono num">{% if run.index_score is not none %}{{ '%.1f'|format(run.index_score) }}{% if not run.ranked %} <span class="dim">nr</span>{% endif %}{% if run.published %} <span title="published">●</span>{% endif %}{% else %}—{% endif %}</td>
+            <td data-label="Versions" class="mono dim small">{{ run.pipeline_version or '—' }}{% if run.code_version %} · {{ run.code_version[:7] }}{% endif %}</td>
         </tr>
         {% else %}
-        <tr><td colspan="7" class="empty">No runs yet.</td></tr>
+        <tr><td colspan="9" class="empty">No runs{{ ' match these filters' if filtered }}.</td></tr>
         {% endfor %}
         </tbody>
     </table>

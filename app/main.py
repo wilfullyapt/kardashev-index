@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, Depends, HTTPException, Form
 from starlette.responses import RedirectResponse, JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -14,12 +15,14 @@ from .db import get_db, SessionLocal
 from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, CATEGORIES  # noqa: F401 (re-exported)
 from . import runs as runs_svc
 from .pipeline import methodology as meth
-from .pipeline.config import settings as pipeline_settings
+from .pipeline.config import code_version, settings as pipeline_settings
 from .pipeline.fetch import HttpFetcher
 from .pipeline.llm import XAIClient
 from .pipeline.runner import Deps
 from .worker import Worker
 from datetime import datetime, UTC
+from zoneinfo import ZoneInfo
+from urllib.parse import urlencode
 from sqlalchemy.exc import IntegrityError
 from collections import defaultdict
 import hmac
@@ -62,6 +65,42 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Kardashev Index", lifespan=lifespan)
 templates = Jinja2Templates(directory="templates")
+PT = ZoneInfo("America/Los_Angeles")
+
+
+def _to_pt(dt):
+    if dt is None:
+        return None
+    if dt.tzinfo is None:  # sqlite returns naive UTC
+        dt = dt.replace(tzinfo=UTC)
+    return dt.astimezone(PT)
+
+
+def fmt_pt(dt, fmt: str = "%Y-%m-%d %H:%M") -> str:
+    """Admin/public timestamps in the operator's zone (PDT/PST)."""
+    d = _to_pt(dt)
+    return f"{d.strftime(fmt)} {d.strftime('%Z')}" if d else "—"
+
+
+def fmt_date(dt) -> str:
+    d = _to_pt(dt)
+    return d.strftime("%Y-%m-%d") if d else "—"
+
+
+def fmt_dur(ms) -> str:
+    if ms is None:
+        return "—"
+    s_ = ms / 1000
+    if s_ < 60:
+        return f"{s_:.1f} s" if s_ < 10 else f"{s_:.0f} s"
+    m, sec = divmod(round(s_), 60)
+    return f"{m}m {sec:02d}s" if m < 60 else f"{m // 60}h {m % 60:02d}m"
+
+
+templates.env.filters["pt"] = fmt_pt
+templates.env.filters["pt_date"] = fmt_date
+templates.env.filters["dur"] = fmt_dur
+templates.env.globals["code_version"] = code_version
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="static")
 
 # Admin auth
@@ -131,11 +170,46 @@ def admin_from_session(request: Request | None) -> str | None:
     return ADMIN_EMAIL if request.session.get("admin") == ADMIN_EMAIL else None
 
 
+class AdminLoginRequired(Exception):
+    pass
+
+
+@app.exception_handler(AdminLoginRequired)
+async def _admin_login_required(request: Request, exc: AdminLoginRequired):
+    # Browsers get the login page; API clients / tests get a plain 401.
+    if request.method == "GET" and "text/html" in request.headers.get("accept", ""):
+        nxt = request.url.path + (f"?{request.url.query}" if request.url.query else "")
+        return RedirectResponse("/admin/login?" + urlencode({"next": nxt}), status_code=303)
+    return JSONResponse(status_code=401, content={"detail": "Admin only"})
+
+
+@app.exception_handler(StarletteHTTPException)
+async def _http_error(request: Request, exc: StarletteHTTPException):
+    # Browsers on public pages get a styled page; APIs (/internal, JSON clients) keep JSON.
+    if (exc.status_code in (404, 405) and not request.url.path.startswith("/internal")
+            and "text/html" in request.headers.get("accept", "")):
+        detail = exc.detail if exc.status_code == 404 and exc.detail != "Not Found" else (
+            "That page doesn't exist — it may have moved." if exc.status_code == 404 else "Method not allowed.")
+        return templates.TemplateResponse("error.html", {"request": request, "code": exc.status_code,
+                                                         "detail": detail, "version": __version__},
+                                          status_code=exc.status_code)
+    return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
+
+
 def get_current_admin(request: Request):
     admin = admin_from_session(request)
     if not admin:
-        raise HTTPException(status_code=401, detail="Admin only")
+        raise AdminLoginRequired()
     return admin
+
+
+def flash(request: Request, msg: str, kind: str = "success"):
+    request.session["flash"] = {"kind": kind, "msg": msg}
+
+
+def pop_flash(request: Request) -> dict:
+    f = request.session.pop("flash", None) or {}
+    return {f["kind"]: f["msg"]} if f.get("kind") in ("success", "error") else {}
 
 
 def require_internal(request: Request, hermes_key: str = None) -> str:
@@ -309,6 +383,9 @@ async def internal_approve_suggestion(
     )
     db.commit()
     if not claimed:
+        if wants_html(request):
+            flash(request, f"Suggestion #{suggestion_id} is no longer pending.", "error")
+            return RedirectResponse("/admin", status_code=303)
         raise HTTPException(404, "Pending suggestion not found")
     sug = db.get(Suggestion, suggestion_id)
 
@@ -329,7 +406,9 @@ async def internal_approve_suggestion(
     worker.wake()
 
     if wants_html(request):
-        return RedirectResponse("/admin#runs", status_code=303)
+        flash(request, f"Approved {sug.name} — run #{run.id} "
+                       f"{'queued' if created else 'already ' + run.status}.")
+        return RedirectResponse(f"/admin/runs/{run.id}", status_code=303)
     return JSONResponse(status_code=202, content={
         "status": "approved",
         "suggestion_id": suggestion_id,
@@ -354,6 +433,9 @@ async def internal_deny_suggestion(
     approver = require_internal(request, hermes_key)
     reason = (reason or request.query_params.get("reason") or "").strip()
     if not reason:
+        if wants_html(request):
+            flash(request, "A denial reason is required.", "error")
+            return RedirectResponse("/admin", status_code=303)
         raise HTTPException(422, "A denial reason is required")
 
     denied = (
@@ -364,6 +446,9 @@ async def internal_deny_suggestion(
     )
     if not denied:
         db.rollback()
+        if wants_html(request):
+            flash(request, f"Suggestion #{suggestion_id} is no longer pending.", "error")
+            return RedirectResponse("/admin", status_code=303)
         raise HTTPException(404, "Pending suggestion not found")
     db.add(IngestLog(
         suggestion_id=suggestion_id,
@@ -373,6 +458,7 @@ async def internal_deny_suggestion(
     ))
     db.commit()
     if wants_html(request):
+        flash(request, f"Denied suggestion #{suggestion_id}.")
         return RedirectResponse("/admin", status_code=303)
     return {"status": "denied", "suggestion_id": suggestion_id, "denied_by": approver,
             "reason": reason}
@@ -497,14 +583,56 @@ def public_leaderboard(request: Request, q: str = None, db: Session = Depends(ge
 
 
 @app.get("/companies/{company_id}")
-def company_detail(company_id: int, request: Request, db: Session = Depends(get_db)):
+def company_detail(company_id: int, request: Request, run: str = None, db: Session = Depends(get_db)):
     company = db.get(Company, company_id)
     if not company:
         raise HTTPException(404, "Company not found")
-    view = runs_svc.company_view(db, company)
+    hist = runs_svc.history(db, company)
+    if run:  # ?run=N-2 / ?run=v0 -> stable URL
+        if run.lower() == "v0":
+            return RedirectResponse(f"/companies/{company_id}/runs/v0", status_code=302)
+        off = runs_svc.parse_rel(run)
+        entry = next((e for e in hist["runs"] if e["offset"] == off), None) if off is not None else None
+        if entry is None:
+            raise HTTPException(404, "No such published run")
+        if not entry["current"]:
+            return RedirectResponse(entry["url"], status_code=302)
+    return _render_company(request, db, company, hist, None)
+
+
+@app.get("/companies/{company_id}/runs/{ref}")
+def company_run(company_id: int, ref: str, request: Request, db: Session = Depends(get_db)):
+    """Read-only dossier of a past published run. ``ref`` is the run's stable ordinal (1 = first
+    published run) or ``v0`` for the legacy single-prompt scores. Failed runs are never public."""
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(404, "Company not found")
+    hist = runs_svc.history(db, company)
+    if ref.lower() == "v0":
+        if not hist["legacy"]:
+            raise HTTPException(404, "No legacy scores for this entity")
+        return _render_company(request, db, company, hist, "v0")
+    if not ref.isdigit():
+        raise HTTPException(404, "No such published run")
+    entry = next((e for e in hist["runs"] if e["ordinal"] == int(ref)), None)
+    if entry is None:
+        raise HTTPException(404, "No such published run")
+    if entry["current"]:
+        return RedirectResponse(f"/companies/{company_id}", status_code=302)
+    return _render_company(request, db, company, hist, entry)
+
+
+def _render_company(request: Request, db: Session, company: Company, hist: dict, entry):
+    if entry == "v0":
+        view = runs_svc.company_view(db, company, hist=hist)
+        view.update(run=None, historical=True, active=None, last_failed=None, legacy=hist["legacy"],
+                    categories=[], measured=[], judged=[], figures=[], sources=[], stages=[], headline=None,
+                    synthesis=None, previous=None, entry={"label": "v0", "legacy": True})
+    else:
+        view = runs_svc.company_view(db, company, run=entry["run"] if entry else None, hist=hist)
     return templates.TemplateResponse(
         "company.html",
-        {"request": request, "company": company, "v": view, "meth": meth, "version": __version__,
+        {"request": request, "company": company, "v": view, "hist": hist, "meth": meth, "version": __version__,
          "cfg_cov": pipeline_settings().rank_min_coverage},
     )
 
@@ -565,9 +693,16 @@ def submit_suggestion(
 
 # ===== ADMIN AUTH ROUTES =====
 
+def _safe_next(nxt: str | None) -> str:
+    return nxt if nxt and nxt.startswith("/admin") and "//" not in nxt else "/admin"
+
+
 @app.get("/admin/login")
-def admin_login_form(request: Request):
-    return templates.TemplateResponse("admin/login.html", {"request": request, "version": __version__})
+def admin_login_form(request: Request, next: str = None):
+    if admin_from_session(request):
+        return RedirectResponse(_safe_next(next), status_code=302)
+    return templates.TemplateResponse("admin/login.html", {"request": request, "version": __version__,
+                                                           "next": _safe_next(next)})
 
 
 @app.post("/admin/login")
@@ -575,13 +710,15 @@ def admin_login(
     request: Request,
     email: str = Form(...),
     password: str = Form(...),
+    next: str = Form(None),
 ):
     if verify_admin(email, password):
         request.session["admin"] = email
-        return RedirectResponse("/admin", status_code=302)
+        return RedirectResponse(_safe_next(next), status_code=302)
     return templates.TemplateResponse(
         "admin/login.html",
-        {"request": request, "error": "Invalid credentials", "version": __version__}
+        {"request": request, "error": "Invalid credentials", "version": __version__, "next": _safe_next(next)},
+        status_code=401,
     )
 
 
@@ -593,25 +730,47 @@ def admin_logout(request: Request):
 
 @app.get("/admin")
 def admin_dashboard(request: Request, db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
-    pending = db.query(Suggestion).filter(Suggestion.status == "pending").all()
-    approved = db.query(Company).order_by(Company.last_ingested_at.desc()).limit(10).all()
+    pending = db.query(Suggestion).filter(Suggestion.status == "pending").order_by(Suggestion.id).all()
     logs = db.query(IngestLog).order_by(IngestLog.timestamp.desc()).limit(20).all()
     high_attempt = db.query(Company).filter(Company.suggestion_attempts > 1).order_by(
         Company.suggestion_attempts.desc()).limit(10).all()
     return templates.TemplateResponse(
         "admin.html",
         {"request": request, "pending": pending, "admin": current_admin, "version": __version__,
-         "approved": approved, "logs": logs, "high_attempt": high_attempt,
-         "runs": runs_svc.admin_runs(db)}
+         "companies": runs_svc.admin_companies(db), "logs": logs, "high_attempt": high_attempt,
+         "runs": runs_svc.admin_runs(db, limit=10), **pop_flash(request)}
     )
 
 
 @app.get("/admin/runs")
-def admin_runs_partial(request: Request, db: Session = Depends(get_db),
-                       current_admin: str = Depends(get_current_admin)):
-    """HTML fragment polled by the admin page while runs are active."""
-    return templates.TemplateResponse("partials/admin_runs.html",
-                                      {"request": request, "runs": runs_svc.admin_runs(db)})
+def admin_runs_list(request: Request, company_id: str = None, status: str = None, page: int = 1,
+                    db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
+    """Every run, newest first, filterable by company and status. Polls itself while runs are active."""
+    cid = int(company_id) if company_id and company_id.isdigit() else None
+    status = status if status in runs_svc.RUN_STATUSES else None
+    data = runs_svc.admin_runs_page(db, company_id=cid, status=status, page=page)
+    filters = {k: v for k, v in (("company_id", cid), ("status", status)) if v is not None}
+    return templates.TemplateResponse(
+        "admin_runs.html",
+        {"request": request, "admin": current_admin, "version": __version__, "data": data, "runs": data["rows"],
+         "company_id": cid, "status": status, "statuses": runs_svc.RUN_STATUSES,
+         "companies": db.query(Company).order_by(Company.canonical_name).all(),
+         "qs": urlencode(filters), "self_url": "/admin/runs?" + urlencode({**filters, "page": data["page"]}),
+         **pop_flash(request)},
+    )
+
+
+@app.get("/admin/runs/{run_id}")
+def admin_run_detail(run_id: int, request: Request, db: Session = Depends(get_db),
+                     current_admin: str = Depends(get_current_admin)):
+    run = db.get(JudgmentRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    return templates.TemplateResponse(
+        "admin_run.html",
+        {"request": request, "admin": current_admin, "version": __version__, "d": runs_svc.admin_run_detail(db, run),
+         "meth": meth, **pop_flash(request)},
+    )
 
 
 @app.get("/internal/runs/{run_id}")
@@ -657,6 +816,10 @@ async def rerun_judgment(
     body = {"company_id": company_id, "canonical_name": company.canonical_name, "rerun_by": approver,
             "run_id": run.id, "run_url": f"/internal/runs/{run.id}"}
     if not created:
+        if wants_html(request):
+            flash(request, f"{company.official_name or company.canonical_name} already has run #{run.id} "
+                           f"{run.status} — showing it instead of queueing another.", "error")
+            return RedirectResponse(f"/admin/runs/{run.id}", status_code=303)
         return JSONResponse(status_code=409, content={
             **body, "status": "already_active", "run_status": run.status,
             "detail": "A run for this company is already queued or running"})
@@ -670,5 +833,7 @@ async def rerun_judgment(
     db.commit()
     worker.wake()
     if wants_html(request):
-        return RedirectResponse("/admin#runs", status_code=303)
+        flash(request, f"Queued run #{run.id} for {company.official_name or company.canonical_name} "
+                       f"(current versions: {meth.PIPELINE_VERSION}, {meth.WEIGHTS_VERSION}).")
+        return RedirectResponse(f"/admin/runs/{run.id}", status_code=303)
     return JSONResponse(status_code=202, content={**body, "status": "rerun_queued"})

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ code }} — Kardashev Index{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block content %}
+<div class="errpage">
+    <p class="eyebrow">Error {{ code }}</p>
+    <h1 class="h2">{{ 'Nothing at this address.' if code == 404 else 'Something went wrong.' }}</h1>
+    <p class="muted">{{ detail }}</p>
+    <div class="hero__actions">
+        <a href="/" class="btn">The leaderboard <span class="btn__arrow" aria-hidden="true">→</span></a>
+        <a href="/methodology" class="btn btn--ghost">Methodology</a>
+    </div>
+</div>
+{% endblock %}

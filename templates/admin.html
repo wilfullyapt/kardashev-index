@@ -1,6 +1,8 @@
 {% extends "base.html" %}
+{%- import "partials/_admin.html" as adm -%}
 
 {% block title %}Admin — Kardashev Index{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
 
 {% block content %}
 <div class="admin-top">
@@ -9,11 +11,11 @@
         <h1 class="h2" style="margin:0">Admin dashboard</h1>
     </div>
     <div class="dossier__meta">
-        <span class="chip">{{ version }}</span>
+        <span class="chip">{{ version }}{% if code_version() %} · {{ code_version()[:7] }}{% endif %}</span>
         <span class="chip">{{ admin }}</span>
-        <a class="chip" href="/admin/logout">Log out</a>
     </div>
 </div>
+{{ adm.nav('dash') }}
 
 <section class="admin-sec">
     <p class="eyebrow">Pending suggestions · queue</p>
@@ -22,16 +24,16 @@
         <div class="queue__item">
             <div>
                 <div class="queue__name">{{ s.name }}</div>
-                {% if s.domain %}<div class="mono" style="font-size:.78rem;color:var(--gold)">{{ s.domain }}</div>{% endif %}
-                <div class="mono dim" style="font-size:.72rem">{{ s.submitted_at }}</div>
+                {% if s.domain %}<div class="mono small" style="color:var(--gold)">{{ s.domain }}</div>{% endif %}
+                <div class="mono dim small">submitted {{ s.submitted_at|pt }}</div>
             </div>
             <div class="queue__actions">
-                <form action="/internal/approve/{{ s.id }}" method="post">
-                    <button class="btn btn--sm">Approve &amp; Ingest</button>
+                <form action="/internal/approve/{{ s.id }}" method="post" onsubmit="return confirm('Approve {{ s.name|replace("'", "")|e }}? This queues a measurement run on the paid xAI API.')">
+                    <button class="btn btn--sm">Approve &amp; measure</button>
                 </form>
-                <form action="/internal/deny/{{ s.id }}" method="post">
+                <form action="/internal/deny/{{ s.id }}" method="post" class="queue__deny">
                     <label class="sr-only" for="deny-{{ s.id }}">Denial reason</label>
-                    <input id="deny-{{ s.id }}" type="text" name="reason" placeholder="Denial reason" required class="input input--sm" style="width:12rem">
+                    <input id="deny-{{ s.id }}" type="text" name="reason" placeholder="Denial reason" required class="input input--sm">
                     <button class="btn btn--sm btn--danger">Deny</button>
                 </form>
             </div>
@@ -43,22 +45,48 @@
 </section>
 
 <section class="admin-sec" id="runs">
-    <p class="eyebrow">Measurement runs · live</p>
+    <div class="admin-sec__head">
+        <p class="eyebrow" style="margin:0">Latest measurement runs · live</p>
+        <a href="/admin/runs" class="btn btn--sm btn--ghost">All runs →</a>
+    </div>
+    {% set poll_url = "/admin" %}
     {% include "partials/admin_runs.html" %}
-    <p class="hint">● = published · nr = not ranked (insufficient data). Run JSON: <span class="mono">/internal/runs/&lt;id&gt;</span>.</p>
+    <p class="hint">● = published · nr = not ranked (insufficient data). Times are Pacific. The table refreshes every few seconds while a run is queued or running.</p>
+</section>
+
+<section class="admin-sec" id="companies">
+    <p class="eyebrow">Companies · current run · re-run with current versions (paid API, ~$0.15–0.30, capped at the per-run budget)</p>
+    <div class="table-scroll">
+    <table class="data-table data-table--stack">
+        <thead><tr><th>Company</th><th>Current (published)</th><th>Last run</th><th class="num">Runs</th><th><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody>
+            {% for row in companies %}{%- set c = row.company -%}
+            <tr>
+                <td data-label="Company"><a href="/companies/{{ c.id }}">{{ c.official_name or c.canonical_name }}</a> <span class="dim mono small">#{{ c.id }}</span></td>
+                <td data-label="Current" class="mono small">{% if row.current %}<a href="/admin/runs/{{ row.current.id }}">#{{ row.current.id }}</a> · {{ '%.1f'|format(row.current.index_score) if row.current.index_score is not none else '—' }}{% if not row.current.ranked %} nr{% endif %} · {{ row.current.finished_at|pt_date }}{% else %}<span class="dim">none</span>{% endif %}</td>
+                <td data-label="Last run" class="mono small">{% if row.last %}<a href="/admin/runs/{{ row.last.id }}">#{{ row.last.id }}</a> {{ adm.status(row.last) }}{% else %}<span class="dim">—</span>{% endif %}</td>
+                <td data-label="Runs" class="mono num"><a href="/admin/runs?company_id={{ c.id }}">{{ row.runs }}</a></td>
+                <td class="actions">{{ adm.rerun(c.id, c.official_name or c.canonical_name, row.last if row.last and row.last.status in ('queued', 'running') else none) }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="5" class="empty">No companies yet. Approve a suggestion to add one.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    </div>
 </section>
 
 <section class="admin-sec">
     <p class="eyebrow">High duplicate attempts · popularity signal</p>
     <div class="table-scroll">
-    <table class="data-table">
-        <thead><tr><th>Company</th><th>Attempts</th><th>Domain</th></tr></thead>
+    <table class="data-table data-table--stack">
+        <thead><tr><th>Company</th><th class="num">Attempts</th><th>Domain</th></tr></thead>
         <tbody>
             {% for c in high_attempt %}
             <tr>
-                <td><a href="/companies/{{ c.id }}">{{ c.canonical_name }}</a></td>
-                <td class="mono" style="color:var(--plasma)">{{ c.suggestion_attempts }}</td>
-                <td class="dim">{{ c.domain or "—" }}</td>
+                <td data-label="Company"><a href="/companies/{{ c.id }}">{{ c.canonical_name }}</a></td>
+                <td data-label="Attempts" class="mono num" style="color:var(--plasma)">{{ c.suggestion_attempts }}</td>
+                <td data-label="Domain" class="dim">{{ c.domain or "—" }}</td>
             </tr>
             {% else %}
             <tr><td colspan="3" class="empty">No companies with duplicate suggestion attempts yet.</td></tr>
@@ -69,33 +97,16 @@
 </section>
 
 <section class="admin-sec">
-    <p class="eyebrow">Companies · re-run a measurement (uses the paid API, ~$0.15–0.40)</p>
+    <p class="eyebrow">Recent activity</p>
     <div class="table-scroll">
-    <table class="data-table">
-        <thead><tr><th>Company</th><th>Last published</th><th></th></tr></thead>
-        <tbody>
-            {% for c in approved %}
-            <tr><td><a href="/companies/{{ c.id }}">{{ c.canonical_name }}</a></td><td class="mono dim">{{ c.last_ingested_at.strftime('%Y-%m-%d %H:%M') if c.last_ingested_at else '—' }}</td>
-                <td><form action="/internal/rerun-judgment/{{ c.id }}" method="post" style="margin:0"><button class="btn btn--sm btn--ghost">Re-run</button></form></td></tr>
-            {% else %}
-            <tr><td colspan="3" class="empty">Nothing approved recently.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    </div>
-</section>
-
-<section class="admin-sec">
-    <p class="eyebrow">Recent ingest activity</p>
-    <div class="table-scroll">
-    <table class="data-table">
-        <thead><tr><th>Time</th><th>Action</th><th>Details</th></tr></thead>
+    <table class="data-table data-table--stack">
+        <thead><tr><th>Time (PT)</th><th>Action</th><th>Details</th></tr></thead>
         <tbody>
             {% for log in logs %}
             <tr>
-                <td class="mono dim" style="white-space:nowrap">{{ log.timestamp.strftime('%Y-%m-%d %H:%M') if log.timestamp else '—' }}</td>
-                <td>{{ log.action }}</td>
-                <td class="muted mono" style="font-size:.76rem">{{ log.details or '' }}</td>
+                <td data-label="Time" class="mono dim nowrap">{{ log.timestamp|pt }}</td>
+                <td data-label="Action">{{ log.action }}{% if log.details and log.details.run_id %} <a class="mono small" href="/admin/runs/{{ log.details.run_id }}">#{{ log.details.run_id }}</a>{% endif %}</td>
+                <td data-label="Details" class="muted mono small wrap-any">{{ log.details or '' }}</td>
             </tr>
             {% else %}
             <tr><td colspan="3" class="empty">No recent activity.</td></tr>
@@ -105,5 +116,5 @@
     </div>
 </section>
 
-<p class="hint">Denials are recorded with reason. Approving queues a measurement run; it executes in the background.</p>
+<p class="hint">Denials are recorded with reason. Approving queues a measurement run; it executes in the background and the run page shows progress.</p>
 {% endblock %}
