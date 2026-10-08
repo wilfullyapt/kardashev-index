@@ -8,21 +8,23 @@ to watts and scored in code). **35% is opinion**, labelled as such: a model scor
 categories against written rubrics, citing only quotes we have verified in documents we fetched
 ourselves. Full details: [`/methodology`](https://kardashev-index.onrender.com/methodology).
 
-## How a score is made (pipeline-v2.0)
+## How a score is made (pipeline-v2.1)
 
 1. **Resolve** the entity (official name, site, ticker, CIK) — xAI model + web search.
 2. **Research** primary sources (sustainability/ESG reports, filings, announcements) — web search, capped.
 3. **SEC EDGAR** XBRL company facts for capex and revenue (US filers; needs `SEC_EDGAR_USER_AGENT`).
 4. **Fetch** every source ourselves: SSRF-guarded, dead links and soft-404s rejected (including a
    random-path probe), sha256 + text snapshot stored.
-5. **Extract** figures and claims; a quote is kept only if it appears verbatim in the fetched
-   text and the number and unit are in it.
+5. **Extract** figures and claims from the most relevant parts of each document; a quote is kept only
+   if it is present in the fetched text (spacing, hyphenation and footnote markers tolerated, words and
+   digits not), the number is in it and the unit is nearby.
 6. **Compute** energy (TWh/yr → watts → Kardashev-equivalent), compute (MW) and growth in code,
    on fixed log-scale anchors.
 7. **Judge** frontier acceleration, builder velocity and permission-to-build against anchored
-   rubrics, from verified quotes only ("insufficient evidence" is a valid answer).
+   rubrics, from verified quotes and figures only ("insufficient evidence" is a valid answer).
 8. **Aggregate** with fixed weights in code (no model-produced overall). Missing data lowers
-   confidence; too little data means "not ranked yet".
+   confidence; too little data means "not ranked yet". A run below the ranking thresholds never
+   replaces better published data (a ranked run, or legacy v0 scores); it is kept and noted instead.
 
 Runs are queued in Postgres and executed by an in-process worker, so approving a suggestion
 returns immediately. Every run, stage (timings, tokens, cost), source, quote and metric is

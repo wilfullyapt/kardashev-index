@@ -105,6 +105,33 @@ Public history (published runs only; failed or unpublished runs, costs, tokens a
 | `GET /companies/{id}?run=N-2` | resolves a relative label to the stable URL (302) |
 | `GET /companies/{id}/runs/v0` | legacy v0 single-prompt scores, labelled superseded (only when real legacy scores exist) |
 
+## Publishing guard and extraction fixes (pipeline-v2.1, prompts-v2.1)
+
+**Publishing guard** (`app/publication.py`). A successful run below the ranking thresholds is recorded
+in full but does not become the company's published (current) run when better data exists: a ranked run,
+an unranked run that scored more of the weight, or real (non-placeholder) legacy v0 scores. Such runs have
+`published: false` and a `summary.publish_note`; admins see them with a **withheld** tag
+(`/admin/runs?status=withheld`). The public page keeps showing the best data and adds a dated note
+("A later run … found too little verified data … not published"); withheld runs get no N number and no
+dossier URL. Migration **0004** replays this rule over existing runs (data-only, idempotent, no deletes).
+
+**Extraction/verification** (`app/pipeline/evidence.py`):
+- quotes are matched on the sequence of letters and digits, so line breaks, hyphenation splits
+  ("trillion- parameter"), Unicode spaces, curly quotes, glued/split words, footnote markers
+  ("emissions.1") and an elided middle ("…") no longer cause rejections; different words or digits still
+  do. The stored quote is the matching span copied from the fetched source;
+- table rows ("Energy consumption 1,053,479 815,864 593,953") yield one number per cell; the value must
+  appear in the matched source span *and* in the model's quote;
+- units accept spellings and scale words ("megawatt hours", "MWh/yr", "thousand MWh" → GWh, "$ millions");
+- long documents are split into ~1 kB chunks; ~60% of each source's budget goes to energy/capacity
+  tables and figures, the rest to qualitative evidence; boilerplate ranks last; the overall budget is
+  shared by relevance (`EXTRACT_MAX_CHARS` 64 000, `EXTRACT_PER_SOURCE_CHARS` 20 000); identical
+  documents (same sha256) are read once (`status: duplicate`);
+- the extract stage detail records what was sent per source (`input`), rejections by reason, and how
+  quotes matched (`match_methods`);
+- the judge runs whenever any verified evidence exists (quotes, and verified figures as context), so
+  opinion categories are scored even when measured data is too thin to rank.
+
 ## Unchanged
 
 `/internal/health`, `/internal/logs` (new actions: `judgment_run`, `judge_error`),
@@ -121,5 +148,7 @@ Public history (published runs only; failed or unpublished runs, costs, tokens a
 | `JUDGE_RESEARCH_MAX_SEARCHES` / `JUDGE_RESOLVE_MAX_SEARCHES` | `8` / `3` | web-search tool-call caps |
 | `JUDGE_MAX_SOURCES` | `12` | candidate sources fetched per run |
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | `0.6` / `0.3` | weight that must be scored to be ranked |
+| `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | `64000` / `20000` | document text sent to the extract stage (total / per source) |
+| `SNAPSHOT_MAX_CHARS` | `150000` | fetched text stored per source |
 | `WORKER_ENABLED` | `1` | set `0` to disable the in-process worker |
 | `WORKER_STALE_S`, `WORKER_MAX_ATTEMPTS` | `180`, `2` | restart recovery: stale runs are re-queued once, then failed |
