@@ -115,6 +115,7 @@ class JudgmentRun(Base):
     rubric_version = Column(String(32))
     weights_version = Column(String(32))
     prompt_hash = Column(String(64))
+    code_version = Column(String(64))     # deployed git commit (RENDER_GIT_COMMIT), 0003
     model = Column(String)                # requested (XAI_MODEL)
     model_returned = Column(String)       # what the API reported
     budget_usd = Column(Float)

@@ -19,7 +19,7 @@ from . import evidence as ev
 from . import methodology as meth
 from . import prompts as P
 from .aggregate import aggregate
-from .config import Settings
+from .config import Settings, code_version
 from .edgar import FACTS_URL, EdgarClient, EdgarError, financials
 from .fetch import Fetcher, SourceChecker
 from .llm import LLM, LLMError, LLMResult, extract_json
@@ -521,6 +521,7 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
     run.rubric_version = meth.RUBRIC_VERSION
     run.weights_version = meth.WEIGHTS_VERSION
     run.prompt_hash = meth.bundle_hash(P.RESOLVE_SYSTEM, P.RESEARCH_SYSTEM, P.EXTRACT_SYSTEM, P.JUDGE_SYSTEM)
+    run.code_version = code_version()
     for col in ("input_tokens", "output_tokens", "reasoning_tokens", "tool_calls"):
         setattr(run, col, 0)
     run.cost_usd = 0.0
@@ -569,4 +570,5 @@ def run_log_details(run: JudgmentRun) -> dict:
             "reasoning_tokens": run.reasoning_tokens, "tool_calls": run.tool_calls, "cost_usd": run.cost_usd,
             "index_score": run.index_score, "confidence": run.confidence, "coverage": run.coverage,
             "ranked": run.ranked, "published": run.published, "error_type": run.error_type,
-            "error": run.error_message, "prompt_version": run.prompt_version, "attempt": run.attempt}
+            "error": run.error_message, "prompt_version": run.prompt_version, "attempt": run.attempt,
+            "code_version": run.code_version}

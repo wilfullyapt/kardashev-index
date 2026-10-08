@@ -44,3 +44,12 @@ class Settings:
 
 def settings() -> Settings:
     return Settings()
+
+
+def code_version() -> str | None:
+    """Deployed git commit. Render sets RENDER_GIT_COMMIT; GIT_COMMIT works elsewhere."""
+    for name in ("RENDER_GIT_COMMIT", "GIT_COMMIT", "SOURCE_VERSION"):
+        val = (os.getenv(name) or "").strip()
+        if val:
+            return val[:40]
+    return None
