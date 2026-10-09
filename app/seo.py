@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, PlainTextResponse, Response
 from sqlalchemy.orm import Session
 
 from .db import get_db
-from .models import Company, JudgmentRun
+from .models import Company
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
@@ -104,11 +104,11 @@ def sitemap_xml(request: Request, db: Session = Depends(get_db)):
     origin = request_origin(request)
     urls: list[tuple[str, datetime | None]] = [(origin + p, None) for p in _page_paths(request)]
     companies = db.query(Company).order_by(Company.id).all()
-    run_ids = [c.current_run_id for c in companies if c.current_run_id]
-    finished = dict(db.query(JudgmentRun.id, JudgmentRun.finished_at).filter(JudgmentRun.id.in_(run_ids))) \
-        if run_ids else {}
+    from .publication import replay_companies
+    rp = replay_companies(db, [c.id for c in companies])
     for c in companies:
-        urls.append((f"{origin}/companies/{c.id}", finished.get(c.current_run_id)))
+        cur = rp[c.id].current
+        urls.append((f"{origin}/companies/{c.id}", cur.finished_at if cur else None))
     parts = ['<?xml version="1.0" encoding="UTF-8"?>',
              '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for loc, lastmod in urls:

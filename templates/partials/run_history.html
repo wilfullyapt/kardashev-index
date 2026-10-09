@@ -2,7 +2,7 @@
     current run (N); links use the run's stable ordinal. -#}
 {%- set entries = hist.runs if hist else [] -%}
 {%- set viewing = v.entry.label if v.entry else ('N' if entries and not v.historical else ('v0' if not v.historical else none)) -%}
-{% if entries or (hist and (hist.legacy or hist.withheld)) %}
+{% if entries or (hist and (hist.legacy or hist.withheld or hist.corrections)) %}
 <section class="history" id="history" aria-labelledby="hist-h">
     <div class="history__head">
         <div>
@@ -54,6 +54,9 @@
         </tbody>
     </table>
     </div>
+    {% for c in hist.corrections %}
+    <p class="hint history__correction"><strong>Correction ({{ c.retracted_at|pt_date }}):</strong> the run of {{ c.finished_at|pt_date }} was retracted — {{ c.reason }}. Its scores are no longer shown.</p>
+    {% endfor %}
     {% if hist.withheld %}{%- set w = hist.withheld[0] -%}
     <p class="hint history__withheld"><span aria-hidden="true">◌</span> {{ 'A later run' if hist.withheld_total == 1 else (hist.withheld_total ~ ' later runs') }} ({{ w.finished_at|pt_date }}{% if hist.withheld_total > 1 %}, latest{% endif %}) completed but found too little verified data — {{ w.reason }} — so {{ 'it was' if hist.withheld_total == 1 else 'they were' }} not published. {{ 'Run N stays current.' if entries else ('The legacy v0 assessment stays on display.' if hist.legacy else '') }}</p>
     {% endif %}

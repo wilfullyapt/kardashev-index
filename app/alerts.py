@@ -59,8 +59,11 @@ def collect(db: Session, days: int = 7, now: datetime | None = None) -> dict:
     retrying = [item(r, next_attempt_at=r.next_attempt_at.isoformat() if r.next_attempt_at else None)
                 for r in rows if r.status == "queued" and (r.error_type or r.trigger == "energy_retry")]
     degraded = [item(r, degraded=r.degraded) for r in rows if r.status == "succeeded" and r.degraded]
+    from . import publication
+    shown = {x.id for v in publication.replay_companies(db, sorted({r.company_id for r in rows})).values()
+             for x in v.public}
     withheld = [item(r, reason=(r.summary or {}).get("publish_note"))
-                for r in rows if r.status == "succeeded" and not r.published]
+                for r in rows if r.status == "succeeded" and r.id not in shown and not r.retracted_at]
     energy_unreadable = [item(r, unreadable=(r.summary or {}).get("energy_unreadable"))
                          for r in rows if r.status == "succeeded" and (r.summary or {}).get("energy_unreadable")]
     stuck = [item(r) for r in rows if r.status == "running" and r.heartbeat_at

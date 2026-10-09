@@ -10,6 +10,26 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.10.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: publishing rules and a new admin action. No component version changes (pipeline-v2.6,
+prompts-v2.4, weights-v1, rubrics-v1). Migration **0006** (additive columns).
+
+### Added
+- **Retract a run** (admin run page, `POST /admin/runs/{id}/retract`; Hermes `POST /internal/runs/{id}/retract`):
+  requires a reason (shown publicly), same-origin protected, audit-logged (who, when, why). A retracted
+  run is never current; the most recent remaining run becomes current even if unranked, and the
+  dossier shows a dated correction note.
+
+### Changed
+- **Newer pipeline wins**: a completed, non-degraded run on a newer pipeline version (and not "energy
+  source couldn't be read") replaces the current run even when it is below the ranking thresholds; it
+  is shown as Unranked with its reason. Failed runs never replace anything; same-version runs keep the
+  existing guard.
+- The current run is computed at read time, so both rules apply to existing runs on deploy (e.g.
+  Crusoe's pipeline-v2.4 run replaces its v2.2 run that counted 3 GW of planned capacity as operating,
+  if that run is not degraded). Admin badges, the withheld alert and the sitemap follow the same rule.
+
 ## [0.9.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: fetch and figure-verification change. Component version: **pipeline-v2.6** (this PR follows

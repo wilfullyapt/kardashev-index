@@ -150,6 +150,10 @@ class JudgmentRun(Base):
     next_attempt_at = Column(DateTime(timezone=True))  # automatic retry not before
     error_class = Column(String(16))                   # transient | permanent
     degraded = Column(JSON)                            # list of degraded stages / reasons
+    # Added in 0006 (retraction): a retracted run is never current; shown publicly as a correction note
+    retracted_at = Column(DateTime(timezone=True))
+    retracted_by = Column(String)
+    retraction_reason = Column(Text)
 
     company = relationship("Company", foreign_keys=[company_id])
     stages = relationship("JudgmentStage", order_by="JudgmentStage.id", back_populates="run")

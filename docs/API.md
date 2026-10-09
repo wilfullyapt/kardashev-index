@@ -115,6 +115,25 @@ an unranked run that scored more of the weight, or real (non-placeholder) legacy
 ("A later run … found too little verified data … not published"); withheld runs get no N number and no
 dossier URL. Migration **0004** replays this rule over existing runs (data-only, idempotent, no deletes).
 
+**Current run at read time; retraction; newer pipeline wins** (0.10.0, `publication.replay`). The
+public (current) run is computed when a page is served, from the company's succeeded runs, so these
+rules apply to existing data on deploy without a data migration (`companies.current_run_id` is kept as
+a cache, re-synced after a run or a retraction):
+- **Newer pipeline wins.** A completed run on a newer pipeline version (`pipeline-v2.10 > v2.9`) than
+  the current run replaces it even when it is below the ranking thresholds; it is shown as Unranked
+  with its reason and the older run stays in the history. Only a clean run qualifies: not `degraded`
+  and not "energy source couldn't be read". Failed runs never replace anything. Same-version runs keep
+  the guard above. Stored `published` flags are otherwise respected.
+- **Retraction.** `POST /admin/runs/{id}/retract` (admin session, same-origin check, form field
+  `reason`, 10–500 characters) or `POST /internal/runs/{id}/retract` (admin session or Hermes key,
+  JSON `{"reason": "…"}`; 422 on a missing/short reason or a run that is not completed/already
+  retracted). A retracted run is never current and is removed from the public history. Later runs are
+  re-decided without it; if none qualifies, the most recent remaining completed run becomes current even
+  if unranked. The dossier shows "Correction (date): … retracted — reason". Stored in
+  `judgment_runs.retracted_at / retracted_by / retraction_reason` (migration **0006**, additive) and
+  audit-logged in `ingest_logs` (`action = "run_retracted"`, admin, reason, current run before/after).
+  There is no un-retract action (a new run, or a database edit, restores data).
+
 **Extraction/verification** (`app/pipeline/evidence.py`):
 - quotes are matched on the sequence of letters and digits, so line breaks, hyphenation splits
   ("trillion- parameter"), Unicode spaces, curly quotes, glued/split words, footnote markers
