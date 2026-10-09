@@ -109,7 +109,7 @@
             <span class="mono dim profile__c" title="confidence">{{ '%.0f'|format((c.confidence or 0) * 100) ~ '%' if c.score is not none else 'no data' }}</span>
         </div>
         {% endfor %}
-        <p class="dim profile__foot">{% if v.prev_entry %}Δ = change vs run {{ v.prev_entry.label }} ({{ v.prev_entry.run.finished_at|pt_date }}). {% endif %}Index = weighted mean of the scored categories (weights renormalized over what was scored) · coverage {{ '%.0f'|format((run.coverage or 0) * 100) }}% · confidence {{ '%.0f'|format((run.confidence or 0) * 100) }}%. No “overall” is asked of the model.</p>
+        <p class="dim profile__foot">{% if v.prev_entry %}Δ = change vs run {{ v.prev_entry.label }} ({{ v.prev_entry.run.finished_at|pt_date }}). {% endif %}Index = weighted mean of the scored categories (weights renormalized over what was scored) · coverage {{ '%.0f'|format((run.coverage or 0) * 100) }}% · confidence {{ '%.0f'|format((run.confidence or 0) * 100) }}%{% set ms = measured_share(v.categories) %}{% if ms is not none %} · <span class="measured-share">measured share {{ '%.0f'|format(ms * 100) }}% of the scored weight (opinion {{ '%.0f'|format((1 - ms) * 100) }}%)</span>{% endif %}. No “overall” is asked of the model. Scores are AI-assisted (<a href="/methodology#disclosures">disclosures</a>).</p>
     </section>
 
     {% include "partials/run_history.html" %}

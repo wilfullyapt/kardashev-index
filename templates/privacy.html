@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+
+{% block title %}Privacy — Kardashev Index{% endblock %}
+{% block description %}What data the Kardashev Index collects: no analytics, no tracking cookies; a session cookie only for admins.{% endblock %}
+
+{% block content %}
+    <p class="eyebrow">Privacy</p>
+    <h1 class="h2" style="margin-top:0">We collect as little as we can.</h1>
+    <p class="lede muted" style="max-width:48rem">There are no accounts for visitors, no analytics, no advertising and no tracking cookies.</p>
+
+    <section class="admin-sec" aria-labelledby="p-cookies">
+        <h2 id="p-cookies" class="h3 sec-h">Cookies</h2>
+        <p class="muted" style="max-width:48rem">The site sets one cookie, <span class="mono">session</span>, and only for site administrators after they sign in. It is signed and HTTP-only, contains only the admin’s sign-in state, and expires after a limited time. Ordinary visitors get no cookies from us.</p>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="p-forms">
+        <h2 id="p-forms" class="h3 sec-h">What you submit</h2>
+        <p class="muted" style="max-width:48rem"><b>Suggest an entity</b> stores the name and optional website you enter, and the time. We don’t ask for your name or email. To limit abuse, your IP address is kept in server memory to count submissions per hour; it is never written to the database and is discarded when the service restarts.</p>
+        <p class="muted" style="max-width:48rem"><b>Corrections</b> sent by email are used only to investigate and fix the issue.</p>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="p-third">
+        <h2 id="p-third" class="h3 sec-h">Service providers</h2>
+        <ul class="criteria">
+            <li><span class="mono">01</span><span><b>Hosting.</b> The site runs on Render, which (like any web host) keeps standard request logs — IP address, time, page requested, browser user agent — for operating and securing the service.</span></li>
+            <li><span class="mono">02</span><span><b>Fonts.</b> Pages load web fonts from Google Fonts, so your browser contacts Google’s servers, which receive your IP address and user agent. See Google’s privacy policy.</span></li>
+            <li><span class="mono">03</span><span><b>AI model.</b> Research and scoring send public company information to xAI’s API. No visitor data is sent to it.</span></li>
+        </ul>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="p-contact">
+        <h2 id="p-contact" class="h3 sec-h">Contact</h2>
+        <p class="muted" style="max-width:48rem">Questions or requests about your data: {% include "partials/_contact.html" %}. If analytics or any new data collection is ever added, this page will be updated first.</p>
+    </section>
+{% endblock %}

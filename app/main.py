@@ -15,6 +15,7 @@ from .db import get_db, SessionLocal
 from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, CATEGORIES  # noqa: F401 (re-exported)
 from . import alerts as alerts_svc
 from . import runs as runs_svc
+from . import disclosure
 from .pipeline import methodology as meth
 from .pipeline.config import code_version, settings as pipeline_settings, worker_settings
 from .pipeline.fetch import HttpFetcher
@@ -120,6 +121,10 @@ templates.env.filters["dur"] = fmt_dur
 templates.env.filters["num"] = fmt_num
 templates.env.globals["code_version"] = code_version
 templates.env.globals["version"] = __version__  # pages that don't pass it still show the real version
+templates.env.globals["contact_email"] = disclosure.contact_email
+templates.env.globals["contact_placeholder"] = disclosure.CONTACT_PLACEHOLDER
+templates.env.globals["scoring_model"] = disclosure.scoring_model
+templates.env.globals["measured_share"] = disclosure.measured_share
 templates.env.globals["public_base_url"] = seo.public_base_url  # canonical origin (PUBLIC_BASE_URL)
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="static")
 
@@ -683,6 +688,16 @@ def _render_company(request: Request, db: Session, company: Company, hist: dict,
         {"request": request, "company": company, "v": view, "hist": hist, "meth": meth, "version": __version__,
          "cfg_cov": pipeline_settings().rank_min_coverage},
     )
+
+
+@app.get("/about")
+def about_page(request: Request):
+    return templates.TemplateResponse(request, "about.html", {"meth": meth})
+
+
+@app.get("/privacy")
+def privacy_page(request: Request):
+    return templates.TemplateResponse(request, "privacy.html", {})
 
 
 @app.get("/methodology")

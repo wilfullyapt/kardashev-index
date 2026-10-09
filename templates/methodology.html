@@ -114,6 +114,16 @@
         </ul>
     </section>
 
+    <section class="admin-sec" aria-labelledby="m-disclosures" id="disclosures">
+        <h2 id="m-disclosures" class="h3 sec-h">Disclosures</h2>
+        <ul class="criteria">
+            <li><span class="mono">AI</span><span><b>AI-assisted.</b> Resolve, research, extraction and the three opinion categories use xAI’s Grok model (<span class="mono">{{ cfg.model }}</span>). Its output is validated in code as described above; individual scores are not hand-reviewed before publication.</span></li>
+            <li><span class="mono">≠</span><span><b>Conflict of interest.</b> xAI, which makes the scoring model, is also ranked on this index. Its figures go through the same verification and its opinion scores through the same rubrics as everyone else’s; sources and rationales are shown on every entity page. <a href="/about#a-coi">More</a>.</span></li>
+            <li><span class="mono">%</span><span><b>Measured vs opinion share.</b> The nominal split is {{ '%.0f'|format(meth.CATEGORIES|selectattr('family', 'equalto', 'measured')|sum(attribute='weight') * 100) }}% measured / {{ '%.0f'|format(meth.CATEGORIES|selectattr('family', 'equalto', 'judged')|sum(attribute='weight') * 100) }}% opinion. Because unscored categories are left out, each entity’s actual measured share of the scored weight is shown next to its Index on the leaderboard and its page.</span></li>
+            <li><span class="mono">$</span><span><b>Not investment advice.</b> The Index is an experimental assessment, not a recommendation about any security. Errors can be reported via the <a href="/about#corrections">corrections</a> contact.</span></li>
+        </ul>
+    </section>
+
     <div class="meta-line">
         <span>{{ meth.PIPELINE_VERSION }} · {{ prompt_version }} · {{ meth.RUBRIC_VERSION }} · {{ meth.WEIGHTS_VERSION }}</span>
         <span>Model {{ cfg.model }} · budget cap ${{ '%.2f'|format(cfg.max_cost_usd) }} per run</span>
