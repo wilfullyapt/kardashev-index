@@ -10,6 +10,14 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+### Changed
+- Render now deploys a `main` commit only after its GitHub checks pass (`autoDeployTrigger: checksPass`)
+  and uses `/health` as its health check (`healthCheckPath`). The outdated `env: python` /
+  `autoDeploy: true` keys are replaced by `runtime: python` / `autoDeployTrigger`.
+- `/health` returns **503** when the instance can't query the database. It used to return 200 with
+  `"status": "degraded"`. A dead or stalled worker still returns 200 (`"status": "degraded"`, worker
+  state in the body), so the worker can never cause restarts or failed deploys.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

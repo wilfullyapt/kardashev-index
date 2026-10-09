@@ -278,15 +278,21 @@ def wants_html(request: Request) -> bool:
 
 @app.get("/health")
 def health():
-    """Liveness plus worker status: alive, queue depth, scheduled retries, last run outcome."""
+    """Render's health check (healthCheckPath) plus worker status for humans/Hermes.
+
+    HTTP status = can this instance serve pages: 200 when the web process can query the database,
+    503 when it can't. Worker state (alive, queue, retries, last run) is informational only: a dead
+    or stopped worker reports "degraded" in the body but stays 200, so Render never restarts the
+    instance or fails a deploy because of the background worker."""
     from .pipeline import prompts
     w = worker.status()
     status = "ok" if (w["alive"] or not w["enabled"]) and "db_error" not in w else "degraded"
-    return {"status": status, "service": "kardashev-index", "version": __version__,
+    body = {"status": status, "service": "kardashev-index", "version": __version__,
             "pipeline_version": meth.PIPELINE_VERSION, "prompt_version": prompts.PROMPT_VERSION,
             "code_version": code_version(), "worker": w,
             "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
                        "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
+    return JSONResponse(body, status_code=503 if "db_error" in w else 200)
 
 
 @app.get("/internal/alerts")
