@@ -132,6 +132,51 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
 - the judge runs whenever any verified evidence exists (quotes, and verified figures as context), so
   opinion categories are scored even when measured data is too thin to rank.
 
+## Reliability and metric correctness (pipeline-v2.2, prompts-v2.2)
+
+- **Metric definitions** are enforced in the prompt and in code (`app/pipeline/semantics.py`):
+  energy *consumed* (and own *generation*) feeds energy throughput; `energy_storage_deployed` and
+  `energy_sold` are recorded but never scored (a storage quote filed as consumption is reclassified).
+  Capex must be the cash-flow "purchases of property and equipment" line or company-reported capex
+  for a completed period in a primary source: bonds/notes, funding rounds, deal or order sizes,
+  planned/forecast spend and headlines are rejected with a recorded reason. Plausibility bounds,
+  parenthesized numbers `( 11,339 )`, dot leaders `....` and table "(in millions)" headers are handled.
+- **Quotes** are verified against the full fetched text (stored up to `SNAPSHOT_MAX_CHARS`), and a quote
+  attributed to the wrong fetched source is matched against the others.
+- **EDGAR**: XBRL company facts supply revenue and capex (`source_url` = the companyfacts API URL,
+  quote carries the accession number). Every sec.gov request sends `SEC_EDGAR_USER_AGENT` and is
+  rate-limited to 8 req/s. Without the user agent the stage is skipped and the admin pages show a
+  config alert.
+- **Identity** is cross-checked against SEC `company_tickers.json` (status `confirmed`, `name_match`,
+  `mismatch`, `not_listed`, `unchecked` in the resolve stage detail). A confident resolution is saved on
+  the company and reused for `IDENTITY_TTL_DAYS`; admins can pin or clear it
+  (`POST /admin/companies/{id}/identity`, form on /admin). A pinned identity is always used.
+- **Checkpoints**: each completed stage is saved in `run.checkpoint`; a retried or interrupted run
+  resumes after the last completed stage (compute and aggregate always re-run) without repeating paid
+  calls. Errors are classified `transient` / `permanent` (`run.error_class`). Transient failures are
+  retried automatically after +2, +10, +60 min (`RUN_RETRY_DELAYS_MIN`) up to `RUN_MAX_ATTEMPTS`
+  attempts in total; `next_attempt_at` is shown on the run. Re-running a run that is waiting for a
+  retry starts it now.
+- **Fetch**: browser-like headers, retries for 429/5xx/timeouts honoring `Retry-After`, and a Wayback
+  Machine fallback for 401/403/404/410/451 (stored as `archive_url` / `archive_timestamp` and labelled
+  "archived copy" publicly). PDFs are parsed page-capped with a second parser fallback.
+- **Graceful degradation**: the budget cap never discards gathered work: remaining gathering stages
+  stop, a reserve is kept for the judge, and the run completes with `run.degraded` listing what was
+  skipped. The judge output is validated leniently (bad ids dropped, missing categories marked
+  insufficient); an empty extraction is retried once on a different chunk selection.
+- **Energy undisclosed rule**: with no verified energy figure after at least
+  `RANK_ENERGY_UNDISCLOSED_MIN_SOURCES` usable sources, a company can be ranked on the remaining 70% of
+  the weight at the same 60% threshold, flagged `energy_undisclosed`, with confidence × 0.8.
+- **Daily sweep** (default on): once a day after `SWEEP_HOUR_UTC`, withheld or not-ranked current runs
+  older than `SWEEP_MIN_AGE_DAYS` are re-queued, capped at `SWEEP_DAILY_COST_USD` per day (estimated
+  `SWEEP_EST_RUN_USD` per run). Logged as `auto_sweep`.
+- **Alerts**: `GET /internal/alerts?days=7` (Hermes key) returns failed / retrying / degraded /
+  withheld / stuck runs and config warnings; the same list is a banner on the admin pages. If
+  `ALERT_WEBHOOK_URL` is set, failures, degradations and stuck runs are POSTed to it as JSON
+  (`{"event": ..., "run_id": ..., "company": ..., "text": ...}`; Slack-compatible `text`).
+- **`GET /health`** reports `worker` (`alive`, `last_tick`, `queue_depth`, `current_run_id`, `retries_scheduled`,
+  `last_run` outcome), versions and config flags (`edgar`, `xai`, `webhook`). Public; no secrets.
+
 ## Unchanged
 
 `/internal/health`, `/internal/logs` (new actions: `judgment_run`, `judge_error`),
@@ -149,6 +194,16 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
 | `JUDGE_MAX_SOURCES` | `12` | candidate sources fetched per run |
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | `0.6` / `0.3` | weight that must be scored to be ranked |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | `64000` / `20000` | document text sent to the extract stage (total / per source) |
-| `SNAPSHOT_MAX_CHARS` | `150000` | fetched text stored per source |
+| `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
+| `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
+| `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
+| `JUDGE_RESOLVE_MAX_TOKENS` / `JUDGE_RESEARCH_MAX_TOKENS` / `JUDGE_EXTRACT_MAX_TOKENS` / `JUDGE_JUDGE_MAX_TOKENS` | `8000` / `16000` / `16000` / `8000` | output token limits |
+| `JUDGE_RESERVE_USD` | `0.04` | budget kept for the judge when gathering stages hit the cap |
+| `IDENTITY_TTL_DAYS` / `IDENTITY_MIN_CONFIDENCE` | `90` / `0.75` | reuse of a saved auto identity |
+| `ENERGY_COUNT_GENERATION` | `1` | count own generation as energy throughput |
+| `RANK_ENERGY_UNDISCLOSED` / `RANK_ENERGY_UNDISCLOSED_MIN_SOURCES` | `1` / `3` | energy-undisclosed ranking rule |
+| `RUN_AUTO_RETRY` / `RUN_MAX_ATTEMPTS` / `RUN_RETRY_DELAYS_MIN` | `1` / `4` / `2,10,60` | automatic retries of transient failures (replaces `WORKER_MAX_ATTEMPTS`) |
+| `SWEEP_ENABLED` / `SWEEP_HOUR_UTC` / `SWEEP_MIN_AGE_DAYS` / `SWEEP_DAILY_COST_USD` / `SWEEP_EST_RUN_USD` | `1` / `10` / `7` / `2.0` / `0.35` | daily re-run sweep of withheld/not-ranked runs |
+| `ALERT_WEBHOOK_URL` | unset | optional JSON webhook for failures/degradations/stuck runs |
 | `WORKER_ENABLED` | `1` | set `0` to disable the in-process worker |
-| `WORKER_STALE_S`, `WORKER_MAX_ATTEMPTS` | `180`, `2` | restart recovery: stale runs are re-queued once, then failed |
+| `WORKER_STALE_S` / `WORKER_DRAIN_S` | `180` / `45` | stale-heartbeat recovery (resumes from checkpoint); shutdown drain time |
