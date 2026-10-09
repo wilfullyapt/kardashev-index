@@ -174,9 +174,16 @@ def verify_admin(email: str, password: str) -> bool:
         return False
     return pwd_context.verify(password, ADMIN_PASSWORD_HASH) if ADMIN_PASSWORD_HASH else False
 
-# Simple session stub (cookie for MVP)
+# Admin session: signed cookie (HttpOnly always; Secure in production; SameSite=Lax; 12 h).
+# SECRET_KEY is required in production (see app/security.py) — no shared fallback key.
 from starlette.middleware.sessions import SessionMiddleware
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "dev-secret"))
+from .security import (LoginThrottle, SecurityMiddleware, SESSION_MAX_AGE_S, session_cookie_secure,
+                       session_secret)
+app.add_middleware(SessionMiddleware, secret_key=session_secret(), https_only=session_cookie_secure(),
+                   same_site="lax", max_age=SESSION_MAX_AGE_S)
+# Outermost: security headers on every response + same-origin check on admin/internal writes.
+app.add_middleware(SecurityMiddleware)
+login_throttle = LoginThrottle()
 
 
 def admin_from_session(request: Request | None) -> str | None:
@@ -748,11 +755,25 @@ def admin_login(
     password: str = Form(...),
     next: str = Form(None),
 ):
+    ip = client_ip(request)
+    wait = login_throttle.retry_after(ip)
+    if wait:
+        mins = max(1, (wait + 59) // 60)
+        return templates.TemplateResponse(
+            request, "admin/login.html",
+            {"request": request, "error": f"Too many failed attempts. Try again in about {mins} min.",
+             "version": __version__, "next": _safe_next(next)},
+            status_code=429, headers={"Retry-After": str(wait)},
+        )
     if verify_admin(email, password):
+        login_throttle.success(ip)
+        request.session.clear()  # fresh session on privilege change
         request.session["admin"] = email
         return RedirectResponse(_safe_next(next), status_code=302)
+    login_throttle.failure(ip)
+    logging.getLogger("kardashev.security").warning("admin login failed from %s", ip)
     return templates.TemplateResponse(
-        "admin/login.html",
+        request, "admin/login.html",
         {"request": request, "error": "Invalid credentials", "version": __version__, "next": _safe_next(next)},
         status_code=401,
     )
