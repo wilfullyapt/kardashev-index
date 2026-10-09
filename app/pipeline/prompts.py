@@ -90,6 +90,10 @@ Examples: "we deployed 46.7 GWh of energy storage products" -> energy_storage_de
 "a $20 billion bond offering" or "plans to spend $2.8 billion on gas turbines" -> not capex, omit;
 a cash-flow row "Purchases of property and equipment (11,339) (8,898)" under "(in millions)" -> capex,
 value 11339, unit USD_millions (parentheses mean an outflow; report the positive number).
+Capacity: "total capacity* 3 GW" with a footnote "* Under development as of March 2026" ->
+datacenter_capacity_planned (a footnote, table heading or nearby note saying planned, under development,
+under construction or contracted makes it planned); use datacenter_capacity_operating only for capacity
+the source says is operating, online or in service today.
 Energy units: MWh, GWh, TWh, kWh, PWh, GJ, TJ, PJ, MJ, EJ, MMBtu. Power units: kW, MW, GW.
 Currency units (US dollars only): USD, USD_thousands, USD_millions, USD_billions.
 "value" is a plain JSON number without thousands separators (1,053,479 -> 1053479). When a table states
@@ -130,7 +134,9 @@ rubrics, using ONLY the numbered evidence provided (each item is a verified verb
 marked "measured figure" are verified reported numbers you may cite as supporting context).
 Interpolate between anchors (one decimal). If the evidence does not support a score, return
 "score": null with "insufficient_evidence": true — never guess and never default to the middle.
-Do not produce an overall score. {GUARD}
+Do not produce an overall score. Capacity labelled planned (or marked "not scored") is future or
+unverified capacity: never describe it as operating, online or current in a rationale or the synthesis.
+{GUARD}
 
 {_rubric_block()}
 
