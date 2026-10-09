@@ -4,8 +4,10 @@ API reported, token usage, the exact billed cost (`usage.cost_in_usd_ticks`) and
 from __future__ import annotations
 
 import json
+import random
 import re
 import time
+from email.utils import parsedate_to_datetime
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -51,10 +53,39 @@ class LLMResult:
 
 
 class LLMError(Exception):
+    """``retryable`` = transient (429, 5xx, timeout, transport): the run may be retried later."""
     def __init__(self, message: str, *, retryable: bool = False, status: int | None = None):
         super().__init__(message)
         self.retryable = retryable
         self.status = status
+
+
+def retry_after_s(value: str | None, now: float | None = None) -> float | None:
+    """Seconds to wait from a Retry-After header (delta-seconds or HTTP date), or None."""
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        dt = parsedate_to_datetime(value)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if dt is None:
+        return None
+    return max(0.0, dt.timestamp() - (now if now is not None else time.time()))
+
+
+def backoff_s(attempt: int, *, base: float = 2.0, cap: float = 60.0, retry_after: float | None = None,
+              rand=random.random) -> float:
+    """Wait before retry number ``attempt`` (1-based): Retry-After when the server sent one (capped),
+    else exponential backoff with full jitter in [base^attempt / 2, base^attempt]."""
+    if retry_after is not None:
+        return min(cap, retry_after)
+    top = min(cap, base ** attempt)
+    return top / 2 + rand() * top / 2
 
 
 class LLM(Protocol):
@@ -130,21 +161,28 @@ def _cost(u: dict, model: str | None, tool_calls: int) -> tuple[float, bool]:
 
 class XAIClient:
     def __init__(self, api_key: str, *, base_url: str = "https://api.x.ai/v1", chat_timeout_s: float = 120,
-                 search_timeout_s: float = 240, max_retries: int = 1, transport: httpx.BaseTransport | None = None,
-                 sleep=time.sleep):
+                 search_timeout_s: float = 240, max_retries: int = 3, backoff_max_s: float = 60,
+                 transport: httpx.BaseTransport | None = None, sleep=time.sleep, rand=random.random):
         self._headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         self._base = base_url.rstrip("/")
         self._chat_timeout = chat_timeout_s
         self._search_timeout = search_timeout_s
         self._max_retries = max(0, max_retries)
+        self._backoff_max = backoff_max_s
         self._transport = transport
         self._sleep = sleep
+        self._rand = rand
+        self.waits: list[float] = []   # backoff waits taken (diagnostics/tests)
 
     def _post(self, path: str, payload: dict, timeout: float) -> tuple[dict, int]:
         last: LLMError | None = None
+        retry_after: float | None = None
         for attempt in range(self._max_retries + 1):
             if attempt:
-                self._sleep(min(2 ** attempt, 8))
+                wait = backoff_s(attempt, cap=self._backoff_max, retry_after=retry_after, rand=self._rand)
+                self.waits.append(round(wait, 3))
+                self._sleep(wait)
+            retry_after = None
             t0 = time.monotonic()
             try:
                 with httpx.Client(transport=self._transport, timeout=timeout) as client:
@@ -156,7 +194,8 @@ class XAIClient:
                 last = LLMError(f"transport error: {type(e).__name__}: {e}", retryable=True)
                 continue
             ms = int((time.monotonic() - t0) * 1000)
-            if resp.status_code == 429 or resp.status_code >= 500:
+            if resp.status_code in (408, 409, 429) or resp.status_code >= 500:
+                retry_after = retry_after_s(resp.headers.get("retry-after"))
                 last = LLMError(f"HTTP {resp.status_code}: {resp.text[:300]}", retryable=True,
                                 status=resp.status_code)
                 continue

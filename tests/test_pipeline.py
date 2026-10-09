@@ -182,6 +182,7 @@ def test_failed_rerun_preserves_published_run(client, db, use_deps):
     assert good.status == "succeeded" and good.published
     bad = _run_once(db, use_deps, c, fakes.make_deps(fakes.world_llm(research=[fakes.api_error()])))
     assert bad.status == "failed" and bad.error_type == "api_error" and not bad.published
+    assert bad.error_class == "transient"
     db.expire_all()
     assert db.get(Company, c.id).current_run_id == good.id
     # the failed run's stages say where it broke; later stages never ran
@@ -193,14 +194,25 @@ def test_failed_rerun_preserves_published_run(client, db, use_deps):
     assert "newer measurement attempt did not complete" in page and "api_error" not in page and "K&nbsp;0.184" in page
 
 
-def test_budget_cap_fails_run_without_publishing(db, use_deps):
+def test_budget_cap_degrades_instead_of_failing(db, use_deps):
+    """Cap reached after resolve: research is skipped (degraded), EDGAR still runs, and the run
+    finishes with what it has instead of failing."""
     c = _company(db)
-    run = _run_once(db, use_deps, c, fakes.make_deps(fakes.world_llm(), max_cost_usd=0.05))
-    assert run.status == "failed" and run.error_type == "budget_exceeded"
-    assert "JUDGE_MAX_COST_USD" in run.error_message
-    assert run.cost_usd == pytest.approx(0.06)  # resolve 0.03 + research 0.03; extract never called
-    db.expire_all()
-    assert db.get(Company, c.id).current_run_id is None
+    llm = fakes.world_llm(judge=[lambda u: {"categories": [], "synthesis": None}])
+    run = _run_once(db, use_deps, c, fakes.make_deps(llm, max_cost_usd=0.05))
+    assert run.status == "succeeded", run.error_message
+    assert any(d.startswith("research: budget cap reached") for d in run.degraded)
+    assert "JUDGE_MAX_COST_USD" in run.degraded[0]
+    assert llm.stages_called()[:1] == ["resolve"] and "research" not in llm.stages_called()
+    st = {s.stage: s.status for s in db.query(JudgmentStage).filter_by(run_id=run.id)}
+    assert st["research"] == "degraded" and st["edgar"] == "succeeded" and st["aggregate"] == "succeeded"
+    assert run.cost_usd <= 0.05 + 1e-9
+
+
+def test_budget_cap_reached_at_resolve_fails_permanently(db, use_deps):
+    c = _company(db)
+    run = _run_once(db, use_deps, c, fakes.make_deps(fakes.world_llm(), max_cost_usd=0.03, retry=fakes.RETRY))
+    assert run.status == "failed" and run.error_type == "budget_exceeded" and run.error_class == "permanent"
 
 
 def test_invalid_judge_output_is_repaired_once_without_new_search(db, use_deps):
@@ -211,21 +223,26 @@ def test_invalid_judge_output_is_repaired_once_without_new_search(db, use_deps):
     assert llm.stages_called() == ["resolve", "research", "extract", "judge", "judge"]
     assert llm.calls[-1]["kind"] == "chat" and "previous reply was rejected" in llm.calls[-1]["user"]
     judge = db.query(JudgmentStage).filter_by(run_id=run.id, stage="judge").one()
-    assert len(judge.detail["attempts"]) == 2 and "unknown category" in judge.detail["attempts"][0]["error"]
+    assert len(judge.detail["attempts"]) == 2 and "no usable category" in judge.detail["attempts"][0]["error"]
 
 
-@pytest.mark.parametrize("bad", [
-    "{\"categories\": [",                                                            # truncated JSON
-    {"categories": [{"category": "frontier_acceleration", "score": 11, "evidence_ids": []}]},  # out of range
-    {"categories": [{"category": "frontier_acceleration", "score": 5, "evidence_ids": [99999]},
-                    {"category": "builder_velocity", "score": None},
-                    {"category": "policy_stance", "score": None}]},                 # invented evidence id
+@pytest.mark.parametrize("bad,degraded", [
+    ("{\"categories\": [", True),                                                   # truncated JSON
+    ({"categories": [{"category": "frontier_acceleration", "score": 11, "evidence_ids": []}]}, False),
+    ({"categories": [{"category": "frontier_acceleration", "score": 5, "evidence_ids": [99999]},
+                     {"category": "builder_velocity", "score": None},
+                     {"category": "policy_stance", "score": None}]}, False),        # invented evidence id
 ])
-def test_persistently_invalid_judge_output_fails_run(db, use_deps, bad):
+def test_invalid_judge_output_never_discards_measured_work(db, use_deps, bad, degraded):
     c = _company(db)
     run = _run_once(db, use_deps, c, fakes.make_deps(fakes.world_llm(judge=[bad])))
-    assert run.status == "failed" and run.error_type == "validation_error"
-    assert db.query(CategoryScore).filter_by(run_id=run.id).count() == 0
+    assert run.status == "succeeded", run.error_message
+    cats = {x.category: x for x in db.query(CategoryScore).filter_by(run_id=run.id)}
+    assert cats["energy_throughput"].score is not None and cats["compute_capacity"].score is not None
+    assert all(cats[k].score is None for k in meth.JUDGED_KEYS)
+    assert bool(run.degraded) == degraded
+    if degraded:
+        assert "judge" in run.degraded[0]
 
 
 def test_insufficient_data_is_published_but_not_ranked_and_never_replaces_ranked(client, db, use_deps):
@@ -279,7 +296,8 @@ def test_edgar_registrant_mismatch_is_not_used(db, use_deps):
     llm = fakes.world_llm(resolve=[{**fakes.RESOLVE_OK, "ticker": "TSLA"}])
     run = _run_once(db, use_deps, c, fakes.make_deps(llm))
     st = db.query(JudgmentStage).filter_by(run_id=run.id, stage="edgar").one()
-    assert st.status == "skipped" and "does not match" in st.detail["skipped"]
+    assert st.status == "skipped" and "belongs to SEC registrant 'Tesla, Inc.'" in st.detail["skipped"]
+    assert run.summary["entity"]["ticker"] is None and run.summary["identity_check"]["status"] == "mismatch"
 
 
 def test_stale_running_run_is_requeued_then_failed(db):
@@ -357,7 +375,7 @@ def test_admin_sees_runs_with_stage_timings(admin_client, db, use_deps):
     part = admin_client.get("/admin/runs").text
     assert "succeeded" in part and "reso" in part and "hx-trigger" not in part
     detail = admin_client.get(f"/admin/runs/{run_id}").text
-    assert "hx-trigger" not in detail and "pipeline-v2.1" in detail and "resolve" in detail
+    assert "hx-trigger" not in detail and "pipeline-v2.2" in detail and "resolve" in detail
     # extracted evidence is listed with verification outcome and rejection reasons (debugging empty runs)
     assert "Extracted figures &amp; quotes" in detail and ">no<" in detail and ">yes<" in detail
 

@@ -5,7 +5,7 @@ import json
 import re
 from dataclasses import replace
 
-from app.pipeline.config import Settings
+from app.pipeline.config import Settings, WorkerSettings
 from app.pipeline.fetch import FetchResult
 from app.pipeline.llm import LLMError, LLMResult
 from app.pipeline.runner import Deps
@@ -202,12 +202,26 @@ def world_llm(**overrides) -> FakeLLM:
     return FakeLLM(responses, citations={"research": [NEWS_URL, POLICY_URL]})
 
 
-def make_deps(llm=None, routes=None, sec=True, **settings) -> Deps:
+NO_RETRY = WorkerSettings(max_attempts=1, auto_retry=False)
+RETRY = WorkerSettings(max_attempts=4, retry_delays_min=(2.0, 10.0, 60.0), auto_retry=True)
+
+
+def make_deps(llm=None, routes=None, sec=True, retry=NO_RETRY, fetcher=None, now=None, **settings) -> Deps:
+    """Deterministic deps. By default no automatic retries (each run is its own final attempt);
+    reliability tests pass ``retry=RETRY``."""
     base = Settings()
     cfg = replace(base, sec_user_agent=SEC_UA if sec else None, model="grok-4.3", **settings)
-    return Deps(llm=llm, fetcher=FakeFetcher(world_routes() if routes is None else routes), settings=cfg,
-                probe_token=lambda: "PROBE")
+    extra = {"now": now} if now else {}
+    return Deps(llm=llm, fetcher=fetcher or FakeFetcher(world_routes() if routes is None else routes), settings=cfg,
+                probe_token=lambda: "PROBE", retry=retry, **extra)
 
 
 def api_error(msg="HTTP 503: overloaded"):
     return LLMError(msg, retryable=True, status=503)
+
+
+def WAYBACK_API_URL(url: str) -> str:
+    from urllib.parse import quote
+
+    from app.pipeline.fetch import WAYBACK_API
+    return WAYBACK_API.format(url=quote(url, safe=""))

@@ -25,6 +25,10 @@ class Company(Base):
     cik = Column(String(10), nullable=True)
     is_public = Column(Boolean, nullable=True)
     current_run_id = Column(Integer, nullable=True, index=True)
+    # Added in 0005: resolved identity reused across runs (auto) or set by an admin (pinned)
+    identity = Column(JSON, nullable=True)
+    identity_status = Column(String(16), nullable=True)
+    identity_resolved_at = Column(DateTime(timezone=True), nullable=True)
 
     scores = relationship("Score", back_populates="company")
 
@@ -141,6 +145,11 @@ class JudgmentRun(Base):
     error_type = Column(String(64))
     error_message = Column(Text)
     summary = Column(JSON)
+    # Added in 0005 (reliability)
+    checkpoint = Column(JSON)                          # per-stage outputs for resume
+    next_attempt_at = Column(DateTime(timezone=True))  # automatic retry not before
+    error_class = Column(String(16))                   # transient | permanent
+    degraded = Column(JSON)                            # list of degraded stages / reasons
 
     company = relationship("Company", foreign_keys=[company_id])
     stages = relationship("JudgmentStage", order_by="JudgmentStage.id", back_populates="run")
@@ -196,6 +205,8 @@ class Source(Base):
     status = Column(String(16))        # ok | dead | soft_404 | blocked | error | skipped
     reject_reason = Column(Text)
     is_primary = Column(Boolean)
+    archive_url = Column(Text)                 # Wayback Machine copy used instead of the original (0005)
+    archive_timestamp = Column(String(14))
 
 
 class Evidence(Base):
@@ -215,6 +226,7 @@ class Evidence(Base):
     period = Column(String(16))
     scope = Column(Text)
     rejected_reason = Column(Text)
+    note = Column(Text)                        # e.g. why a figure was reclassified (0005)
 
 
 class Metric(Base):
