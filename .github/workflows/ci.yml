@@ -33,7 +33,7 @@ jobs:
 
   test-postgres:
     # Same suite against Postgres (production database engine), incl. migrations' data fixes.
-    # Not a required check yet; the owner can add it to the main ruleset.
+    # Required check on main (ruleset).
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -56,3 +56,25 @@ jobs:
         run: pip install -r requirements-dev.txt
       - name: Test (Postgres)
         run: pytest
+
+  version-check:
+    # PRs only: a pipeline/prompt/weights/rubric version change or a new migration must come with
+    # an app version bump (app/version.py) and a CHANGELOG.md entry. See docs/RELEASING.md.
+    # Required check on main (ruleset). The guard below lets the job report green on branches
+    # created before the versioning PR added the script; once it is on main it always runs.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check version bump
+        run: |
+          if [ -f scripts/check_version_bump.py ]; then
+            python scripts/check_version_bump.py "origin/${{ github.base_ref }}"
+          else
+            echo "scripts/check_version_bump.py not present on this branch (pre-versioning); skipping."
+          fi
