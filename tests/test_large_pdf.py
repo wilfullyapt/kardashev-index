@@ -172,7 +172,7 @@ def test_child_memory_cap_fails_safely(tmp_path):
     f = tmp_path / "r.pdf"
     f.write_bytes(report(pad=0))
     res = L.run_child(["--file", str(f)], replace(LIM, memory_mb=20, timeout_s=60))
-    assert not res.ok and ("memory cap" in res.reason or "exited" in res.reason)
+    assert not res.ok and "memory cap" in res.reason, res.reason
 
 
 def test_child_timeout_is_enforced(monkeypatch):

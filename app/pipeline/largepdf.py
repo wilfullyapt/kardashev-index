@@ -524,6 +524,9 @@ def _main(argv: list[str]) -> int:
         print("MemoryError", file=sys.stderr)
         return 3
     except Exception as e:
+        if re.search(r"map segment|allocate memory|Cannot allocate", str(e)):
+            print("MemoryError", file=sys.stderr)      # address-space cap hit while loading a module
+            return 3
         res = Result(ok=False, reason=f"{type(e).__name__}: {str(e)[:160]}")
     print(json.dumps(asdict(res)))
     return 0
