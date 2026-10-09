@@ -5,8 +5,8 @@
 
 {%- set hlabel = v.entry.label if v.historical and v.entry else none -%}
 {% block title %}{{ name }}{% if hlabel %} · run {{ hlabel }}{% endif %} — Kardashev Index{% endblock %}
-{% block head %}{% if v.historical %}<meta name="robots" content="noindex">
-    <link rel="canonical" href="/companies/{{ company.id }}">{% endif %}{% endblock %}
+{% block canonical %}{{ origin }}/companies/{{ company.id }}{% endblock %}
+{% block head %}{% if v.historical %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
 {% block description %}{{ name }} on the Kardashev Index: {% if run and run.ranked %}Index {{ '%.1f'|format(run.index_score) }}/10 at {{ '%.0f'|format((run.confidence or 0) * 100) }}% confidence{% if h %}, Kardashev-equivalent K {{ '%.3f'|format(h.k_equivalent) }}{% endif %}{% else %}not yet ranked{% endif %}. Measured from reported energy, compute and growth figures, plus labelled opinion categories.{% endblock %}
 
 {% block content %}

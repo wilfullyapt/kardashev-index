@@ -37,6 +37,7 @@ log = logging.getLogger("kardashev")
 
 # App versioning: single source of truth is app/version.py
 from .version import __version__
+from . import seo
 
 # xAI key (existing env var names). The pipeline builds its own httpx client from it.
 XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
@@ -78,6 +79,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Kardashev Index", lifespan=lifespan)
+# Canonical host (PUBLIC_BASE_URL): 301 other hosts to it; no-op when unset. robots/sitemap/favicon.
+app.add_middleware(seo.CanonicalHostMiddleware)
+app.include_router(seo.router)
 templates = Jinja2Templates(directory="templates")
 PT = ZoneInfo("America/Los_Angeles")
 
@@ -121,6 +125,7 @@ templates.env.globals["contact_email"] = disclosure.contact_email
 templates.env.globals["contact_placeholder"] = disclosure.CONTACT_PLACEHOLDER
 templates.env.globals["scoring_model"] = disclosure.scoring_model
 templates.env.globals["measured_share"] = disclosure.measured_share
+templates.env.globals["public_base_url"] = seo.public_base_url  # canonical origin (PUBLIC_BASE_URL)
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="static")
 
 # Admin auth
