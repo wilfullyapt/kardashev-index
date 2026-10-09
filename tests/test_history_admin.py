@@ -92,7 +92,7 @@ def test_public_history_excludes_failed_runs_and_spend(client, db, three_runs):
     assert hist.count('class="runlbl') == 4  # 3 published runs + legacy v0; failed/unpublished absent
     assert 'data-label="Index" class="mono num">3.0' not in hist and "api_error" not in html and "boom" not in html
     assert not re.search(r"\$\d", html) and "cost" not in hist.lower() and "/internal/" not in html
-    assert "<polyline" in html and "Index across 3 runs" in html
+    assert "<polyline" in html and "Index across 3 ranked runs" in html
     # per-category delta vs N-1: energy 2.5 -> 2.1, frontier 8 -> 9, builder velocity is new
     assert "-0.4" in html and "+1.0" in html and ">new<" in html and "+0.5 vs N-1" in html
 

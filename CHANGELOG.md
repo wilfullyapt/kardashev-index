@@ -32,15 +32,33 @@ diagnosis (Crusoe "3 GW operating capacity" beside 18.9 MW of measured energy us
   example.
 - Existing runs are not rewritten; the fix applies to the next run of each company.
 
-### Added
-- Licensing: `LICENSE` (MIT, code), `DATA-LICENSE.md` (CC BY 4.0 for scores, data and methodology
-  text; third-party quotes and figures excluded), `NOTICE.md` (htmx 0BSD, Google Fonts OFL 1.1,
-  project images), README "License" section, footer "Scores licensed CC BY 4.0" line and an
-  `/about#license` section. No scoring or component-version changes.
+## [0.5.1] - Unreleased (untagged; tag after merge with owner approval)
+
+PATCH: display only. No scoring, ranking or component-version changes
+(pipeline-v2.3, prompts-v2.2, weights-v1, rubrics-v1 unchanged).
+
+### Fixed
+- Unranked runs never show a numeric Index on public pages. Run history shows "Unranked" (with the
+  not-ranked reason as a tooltip) instead of the raw number (e.g. Anduril's "10.0 nr"); the entity
+  header gauge reads "Unranked".
+- Index deltas compare ranked runs only: each ranked run is compared with the latest earlier ranked
+  run (e.g. "+0.6 vs N-2"), and unranked runs get no delta. Tesla's "+3.4 vs N-1" (ranked 4.6 vs an
+  unranked 1.2) no longer appears.
+- The Index sparkline plots ranked runs only (unranked runs are gaps).
+- Admin views label an unranked run's number "raw · unranked". The Hermes JSON endpoints keep the raw
+  `index_score` next to `ranked` (see `docs/API.md`).
+
 ## [0.5.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: ranking methodology change. Component version: **pipeline-v2.2 → pipeline-v2.3**
 (prompts-v2.2, weights-v1, rubrics-v1 unchanged; no score, weight or anchor changes).
+
+### Added
+- Licensing: `LICENSE` (MIT, code), `DATA-LICENSE.md` (CC BY 4.0 for scores, data and methodology
+  text; third-party quotes and figures excluded), `NOTICE.md` (htmx 0BSD, Google Fonts OFL 1.1,
+  project images), README "License" section, footer "Scores licensed CC BY 4.0" line and an
+  `/about#license` section (#14).
+- JSON: runs carry `ranked_at_run` (the stored verdict) next to `ranked` (the effective one).
 
 ### Changed
 - Ranking quality gate. An entity is ranked only if it passes the existing coverage rule (at least
@@ -57,10 +75,7 @@ MINOR: ranking methodology change. Component version: **pipeline-v2.2 → pipeli
 - The daily sweep still uses each run's stored verdict, so this change does not trigger re-runs.
 - `/methodology` (ranking rules), the not-ranked notice and `docs/API.md` describe the new rule.
 
-### Added
-- JSON: runs carry `ranked_at_run` (the stored verdict) next to `ranked` (the effective one).
-
-## [0.4.0] - Unreleased (untagged; tag after merge with owner approval)
+## [0.4.0] - 2026-10-09
 
 MINOR: new public pages and endpoints. Includes everything merged since 0.3.0 (#5, #6, #7 and
 this PR). No scoring, ranking or component-version changes

@@ -181,6 +181,12 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
   (0.40) and `confidence` (0–1; shown as 0–100%) is > `RANK_MIN_CONFIDENCE` (0.20). The gate is also
   recomputed at display time for stored runs (`app/eligibility.py`); `ranked` in API responses is that
   effective value and `ranked_at_run` is the verdict stored when the run finished.
+- **Unranked index** (0.5.1): every run stores `index_score` (the weighted mean of whatever was
+  scored), but for an unranked run it is a raw number over too little data and is not comparable.
+  Public pages never show it: run history and the header read "Unranked", deltas compare ranked runs
+  only, and the Index sparkline plots ranked runs only. The Hermes JSON endpoints (`/internal/runs*`,
+  `/internal/recent-judgments`) keep the raw `index_score` for diagnostics alongside `ranked`; clients
+  must not display it as an Index when `ranked` is false.
 - **Daily sweep** (default on): once a day after `SWEEP_HOUR_UTC`, withheld or not-ranked current runs
   older than `SWEEP_MIN_AGE_DAYS` are re-queued, capped at `SWEEP_DAILY_COST_USD` per day (estimated
   `SWEEP_EST_RUN_USD` per run). Logged as `auto_sweep`.
