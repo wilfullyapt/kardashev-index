@@ -66,7 +66,19 @@ _RUNRATE = re.compile(r"\b(run[- ]rate|annuali[sz]ed|arr\b|valuation|valued at|b
 _DC_FUTURE = re.compile(
     r"\b(planned|will|expected|under construction|upcoming|to be (?:built|completed|online)|proposed|"
     r"announced plans?|plans? to|planning to|intends? to|next year|pipeline|contracted|secured|"
-    r"by (?:the end of )?20\d\d|coming online)\b", re.IGNORECASE)
+    r"by (?:the end of )?20\d\d|coming online|under development|in development|being (?:developed|built)|"
+    r"under way|underway|in progress|forthcoming|pre-construction|broke ground|breaking ground|"
+    r"future capacity|development pipeline)\b", re.IGNORECASE)
+_DC_OPERATING = re.compile(r"\b(operat\w*|online|on-line|in service|energi[sz]ed|running|live|installed|"
+                           r"existing|currently|today|active)\b", re.IGNORECASE)
+# Words that, right next to a capacity amount, mark it as future capacity (used by the summary guard).
+_PLANNED_QUAL = re.compile(r"\b(planned|under (?:development|construction)|in development|pipeline|contracted|"
+                           r"announced|future|proposed|by 20\d\d|upcoming|to come online)\b", re.IGNORECASE)
+
+# A footnote marker *used* on a word or number ("capacity*", "3 GW†", "sqft¹") ...
+_FOOTNOTE_USE = re.compile(r"(?<=[\w%)\]])(\*{1,3}|†|‡|§|[¹²³⁴⁵⁶⁷⁸⁹])")
+_FOOTNOTE_CHARS = "*†‡§¹²³⁴⁵⁶⁷⁸⁹"
+FOOTNOTE_WINDOW = 2500   # characters searched on each side of the quote (PDF text puts footnotes anywhere on the page)
 
 _SCALE_CTX = re.compile(
     r"(?:\(|\b)(?:in|amounts in|dollars in|\$ in|us\$ in|usd in|expressed in)\s+(thousands|millions|billions)\b",
@@ -94,14 +106,52 @@ def table_scale(text: str, pos: int, lookback: int = 8000) -> tuple[str, float] 
     return SCALE_UNITS[hits[-1].group(1).lower()]
 
 
+def _same_row(quote: str, row_context: str) -> str:
+    """The part of ``row_context`` in the same sentence / table row as the quote: prose context is cut
+    at sentence ends so a neighbouring sentence ("An additional 120 MW is planned.") does not leak in."""
+    ctx = row_context or ""
+    i = ctx.find(quote) if quote else -1
+    if i < 0:
+        return ctx
+    left = max(ctx.rfind(". ", 0, i), ctx.rfind("? ", 0, i), ctx.rfind("! ", 0, i))
+    right = [j for j in (ctx.find(". ", i + len(quote)), ctx.find("? ", i + len(quote))) if j >= 0]
+    return ctx[left + 1 if left >= 0 else 0: min(right) + 1 if right else len(ctx)]
+
+
+def footnote_markers(quote: str) -> set[str]:
+    return set(_FOOTNOTE_USE.findall(quote or ""))
+
+
+def footnote_texts(text: str, pos: int, quote: str, window: int = FOOTNOTE_WINDOW) -> list[str]:
+    """Footnote definitions for the markers used in ``quote`` (found at ``pos`` in ``text``).
+
+    A definition is the marker standing on its own (after whitespace or at the start) followed by text,
+    e.g. "* Under development as of March 2026". Extracted PDF text puts footnotes before or after the
+    figure, so ``window`` characters are searched on both sides. Several footnotes can share a marker
+    (Crusoe uses "*" for two); all are returned and the caller treats any future-capacity wording in
+    them conservatively."""
+    out: list[str] = []
+    for mk in footnote_markers(quote):
+        lo = max(0, pos - window)
+        hi = min(len(text), pos + len(quote) + window)
+        stop = re.escape(_FOOTNOTE_CHARS)
+        pat = re.compile(rf"(?:(?<=\s)|^){re.escape(mk)}(?![{stop}])\s*([A-Za-z(][^{stop}]{{3,160}})")
+        for m in pat.finditer(text, lo, hi):
+            if pos <= m.start() < pos + len(quote):
+                continue
+            out.append(m.group(1).strip())
+    return out
+
+
 def has_inline_scale(quote: str) -> bool:
     return bool(_INLINE_SCALE.search(quote or ""))
 
 
 def check_figure(metric_key: str, *, quote: str, period: str | None, is_primary: bool,
-                 current_year: int, row_context: str = "") -> Verdict:
+                 current_year: int, row_context: str = "", footnotes: list[str] | tuple = ()) -> Verdict:
     """Semantic checks on one verified figure. ``row_context`` is the source text right around the
-    quote (table row label, header) used only to confirm what the row is."""
+    quote (table row label, header) used only to confirm what the row is. ``footnotes`` are the
+    definitions of footnote markers used in the quote (see ``footnote_texts``)."""
     q = quote or ""
     both = f"{q} {row_context}"
     year = parse_year(period)
@@ -127,9 +177,19 @@ def check_figure(metric_key: str, *, quote: str, period: str | None, is_primary:
         return Verdict(True, metric_key)
 
     if metric_key == "datacenter_capacity_operating":
+        planned_note = "planned / under-construction capacity is recorded, not scored"
         if _DC_FUTURE.search(q) or (year is not None and year > current_year):
+            return Verdict(True, "datacenter_capacity_planned", note=planned_note)
+        if not _DC_OPERATING.search(q) and _DC_FUTURE.search(_same_row(q, row_context)):
             return Verdict(True, "datacenter_capacity_planned",
-                           note="planned / under-construction capacity is recorded, not scored")
+                           note=f"{planned_note} (the surrounding table row says so)")
+        fn = next((t for t in footnotes if _DC_FUTURE.search(t)), None)
+        if fn:
+            return Verdict(True, "datacenter_capacity_planned",
+                           note=f"{planned_note} (footnote: \"{fn[:80]}\")")
+        if footnote_markers(q) and not footnotes and not _DC_OPERATING.search(q):
+            return Verdict(True, "datacenter_capacity_planned",
+                           note="footnoted capacity whose footnote could not be found is not treated as operating")
         return Verdict(True, metric_key)
 
     if metric_key == "capex":
@@ -163,3 +223,70 @@ def check_figure(metric_key: str, *, quote: str, period: str | None, is_primary:
         return Verdict(True, metric_key)
 
     return Verdict(True, metric_key)
+
+
+# ---------------- capacity plausibility and summary guard ----------------
+
+SECONDS_PER_YEAR = 3.15576e7
+CAPACITY_MIN_UTILISATION = 0.2     # even a lightly used fleet draws >= 20% of its capacity on average
+CAPACITY_ENERGY_TOLERANCE = 10.0   # and reported energy is not off by more than 10x
+
+
+def capacity_inconsistent(capacity_w: float, capacity_year: int | None,
+                          energy: list[tuple[float, int | None]]) -> str | None:
+    """Why an *operating* capacity figure contradicts the company's reported annual energy (J/yr), or None.
+
+    Operating capacity × hours in a year × 20% utilisation is a floor on the energy the fleet must use;
+    if that floor is more than 10× the largest reported energy/electricity consumption for the same
+    period (±1 year), the capacity is almost certainly planned or mis-scoped. Without a comparable
+    energy figure nothing is said."""
+    if not capacity_w or capacity_w <= 0:
+        return None
+    same = [j for j, y in energy if j and j > 0 and (capacity_year is None or y is None or abs(y - capacity_year) <= 1)]
+    if not same:
+        return None
+    floor = capacity_w * SECONDS_PER_YEAR * CAPACITY_MIN_UTILISATION
+    reported = max(same)
+    if floor > CAPACITY_ENERGY_TOLERANCE * reported:
+        avg_mw = reported / SECONDS_PER_YEAR / 1e6
+        return (f"operating capacity {capacity_w / 1e6:,.0f} MW is inconsistent with reported energy use "
+                f"(~{avg_mw:,.1f} MW average): even at {CAPACITY_MIN_UTILISATION:.0%} utilisation it would use "
+                f"{floor / reported:,.0f}x the reported energy")
+    return None
+
+
+def _amount_patterns(mw: float) -> list[re.Pattern]:
+    """Ways a capacity of ``mw`` megawatts is written in prose: "3 GW", "3GW", "3 gigawatts", "3,000 MW"."""
+    pats = []
+    def num(x: float) -> str:
+        s = f"{x:,.2f}".rstrip("0").rstrip(".")
+        return re.escape(s).replace(",", ",?")
+    if mw >= 100:
+        pats.append(rf"(?<![\d.]){num(mw / 1000)}\s*(?:GW|gigawatts?)\b")
+    pats.append(rf"(?<![\d.]){num(mw)}\s*(?:MW|megawatts?)\b")
+    return [re.compile(p, re.IGNORECASE) for p in pats]
+
+
+def strip_future_as_current(text: str | None, future_mw: list[float]) -> tuple[str | None, int]:
+    """Remove sentences that present future (planned / footnoted / inconsistent) capacity as operating.
+
+    A sentence is removed when it mentions one of ``future_mw`` and operating/current wording, and the
+    amount is not qualified as future right next to it ("3 GW planned", "planned 3 GW"). Returns the
+    cleaned text (None if nothing is left) and the number of sentences removed."""
+    if not text or not future_mw:
+        return text, 0
+    pats = [p for mw in future_mw if mw and mw > 0 for p in _amount_patterns(mw)]
+    kept, removed = [], 0
+    for sent in re.split(r"(?<=[.!?])\s+", text.strip()):
+        bad = False
+        for p in pats:
+            for m in p.finditer(sent):
+                near = sent[max(0, m.start() - 20): m.end() + 25]
+                if _DC_OPERATING.search(sent) and not _PLANNED_QUAL.search(near):
+                    bad = True
+        if bad:
+            removed += 1
+        else:
+            kept.append(sent)
+    out = " ".join(kept).strip()
+    return (out or None), removed

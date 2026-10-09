@@ -10,6 +10,28 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.6.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: metric-correctness change. Component versions: **pipeline-v2.3 → pipeline-v2.4**,
+**prompts-v2.2 → prompts-v2.3** (weights-v1, rubrics-v1 unchanged). Fixes Bug 2 of the scoring-bug
+diagnosis (Crusoe "3 GW operating capacity" beside 18.9 MW of measured energy use).
+
+### Fixed
+- Future capacity is no longer scored as operating. A `datacenter_capacity_operating` figure becomes
+  `datacenter_capacity_planned` (recorded, not scored) when the quote, its own sentence/table row or
+  the footnote for a marker in the quote says planned / under development / under construction.
+  Footnotes are resolved on both sides of the figure (Crusoe's "* Under development as of March 2026"
+  precedes "total capacity* 3 GW" in the extracted PDF text). A footnoted figure whose footnote cannot
+  be found is not treated as operating unless the quote itself says so. Neighbouring sentences no
+  longer leak into the check.
+- Plausibility check: operating capacity that would use more than 10x the company's reported energy
+  or electricity consumption (same year ±1) even at 20% utilisation is recorded but not scored, and
+  the run is flagged (Crusoe: 3,000 MW vs ~18.9 MW average, 32x).
+- Summaries: sentences in the synthesis or opinion rationales that describe planned or unscored
+  capacity as operating are removed; the extraction and judge prompts state the rule with the Crusoe
+  example.
+- Existing runs are not rewritten; the fix applies to the next run of each company.
+
 ## [0.5.1] - Unreleased (untagged; tag after merge with owner approval)
 
 PATCH: display only. No scoring, ranking or component-version changes

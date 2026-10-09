@@ -143,6 +143,7 @@ class RunContext:
         self.judged: dict[str, dict] = {}
         self.synthesis: str | None = None
         self.flags: list[str] = []
+        self.future_capacity_mw: list[float] = []   # planned or implausible capacity (MW): never 'operating'
         self.cp: dict = dict(run.checkpoint or {})
         self.degraded: list[str] = list(self.cp.get("degraded") or [])
         self.final_attempt = True
@@ -592,8 +593,11 @@ def stage_extract(ctx: RunContext):
                 else:
                     si = to_si(key, value, unit) or 0
                     src = ctx.sources[sid]
+                    fns = (sem.footnote_texts(text.text, m.start, m.text)
+                           if key.startswith("datacenter_capacity") else [])
                     verdict = sem.check_figure(key, quote=m.text, period=f["period"], is_primary=bool(src.is_primary),
-                                               current_year=ctx.year, row_context=text.context(m, 120))
+                                               current_year=ctx.year, row_context=text.context(m, 120),
+                                               footnotes=fns)
                     if si > PLAUSIBLE_MAX_SI[key]:
                         reject(row, "implausible magnitude (likely unit or scope error)")
                         ctx.flags.append(f"implausible {key}: {value} {unit}")
@@ -655,14 +659,43 @@ def _cat_for_metric(key: str) -> str:
     return "growth"
 
 
+CAPACITY_CHECK_ENERGY = ("energy_consumption", "electricity_consumption")
+
+
+def capacity_cross_check(figures: list[Figure]) -> dict[int, str]:
+    """{id(figure): reason} for operating-capacity figures that contradict reported energy use."""
+    energy = [(f.si, f.year) for f in figures if f.metric_key in CAPACITY_CHECK_ENERGY and f.si]
+    out = {}
+    for f in figures:
+        if f.metric_key == "datacenter_capacity_operating" and f.si:
+            why = sem.capacity_inconsistent(f.si, f.year, energy)
+            if why:
+                out[id(f)] = why
+    return out
+
+
 def stage_compute(ctx: RunContext):
     with ctx.stage("compute") as st:
-        ctx.measured, ctx.headline = measure_all(ctx.figures, ctx.deps.now().year, ctx.s.count_generation)
+        bad = capacity_cross_check(ctx.figures)
+        ctx.future_capacity_mw = [f.si / 1e6 for f in ctx.figures if f.si and (
+            f.metric_key == "datacenter_capacity_planned" or id(f) in bad)]
+        if bad:
+            st.detail["capacity_inconsistent"] = list(bad.values())
+            for f in ctx.figures:
+                if id(f) in bad:
+                    ctx.flags.append(f"capacity not scored: {bad[id(f)]}")
+                    row = ctx.db.get(Evidence, f.evidence_id) if f.evidence_id else None
+                    if row is not None and "not scored:" not in (row.note or ""):
+                        row.note = "; ".join(x for x in (row.note, f"not scored: {bad[id(f)]}") if x)
+                        row.claim = f"{row.claim} (not scored: inconsistent with reported energy use)"
+        scored = [f for f in ctx.figures if id(f) not in bad]
+        ctx.measured, ctx.headline = measure_all(scored, ctx.deps.now().year, ctx.s.count_generation)
         for f in ctx.figures:
+            method = f"reported ({f.origin})" + ("; not scored: inconsistent with reported energy" if id(f) in bad else "")
             ctx.db.add(Metric(run_id=ctx.run.id, metric_key=f.metric_key, value=f.value, unit=f.unit,
                               value_si=f.si, unit_si={"capex": "USD", "revenue": "USD"}.get(f.metric_key) or
                               ("W" if f.metric_key.startswith("datacenter") else "J/yr"),
-                              period=f.period, method=f"reported ({f.origin})", source_id=f.source_id,
+                              period=f.period, method=method[:200], source_id=f.source_id,
                               evidence_ids=[f.evidence_id] if f.evidence_id else []))
         if ctx.headline:
             h = ctx.headline
@@ -722,6 +755,19 @@ def stage_judge(ctx: RunContext):
                 judged, synthesis = _insufficient("Not judged: the model's reply could not be used."), None
             else:
                 raise
+        # Never present future capacity (planned, footnoted, or inconsistent with energy use) as current.
+        future_mw = getattr(ctx, "future_capacity_mw", None) or []
+        stripped = 0
+        if future_mw:
+            synthesis, n = sem.strip_future_as_current(synthesis, future_mw)
+            stripped += n
+            for v in judged.values():
+                if v.get("rationale"):
+                    v["rationale"], n = sem.strip_future_as_current(v["rationale"], future_mw)
+                    v["rationale"] = v["rationale"] or "Rationale withheld: it described planned capacity as operating."
+                    stripped += n
+        if stripped:
+            st.detail["future_capacity_sentences_removed"] = stripped
         for v in judged.values():
             if v["score"] is not None:
                 support = min(1.0, len(set(v["evidence_ids"])) / 3)
