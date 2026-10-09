@@ -215,6 +215,14 @@ a cache, re-synced after a run or a retraction):
   the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
   not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
   copy was used, appended to the source's reason (shown on the admin run page).
+- **Report-PDF discovery** (pipeline-v2.8, `app/pipeline/discover.py`): when a report landing page
+  (research said it covers energy, or its path/title names impact / sustainability / ESG / climate /
+  CDP / energy) could be read, from the original or its Wayback copy, its PDF links that name a
+  disclosure are followed (no model calls). Newest year first, the full edition ("extended", "data",
+  "appendix") before a "highlights"/"summary" edition; once a full edition of a year is chosen, its
+  summary edition and older years are skipped. At most `FETCH_DISCOVER_PER_PAGE` (2) per page and
+  `FETCH_DISCOVER_MAX` (4) per run, fetched one at a time through the normal path (Wayback fallback,
+  large-PDF reader). Stored with origin `discovered`.
 - **Graceful degradation**: the budget cap never discards gathered work: remaining gathering stages
   stop, a reserve is kept for the judge, and the run completes with `run.degraded` listing what was
   skipped. The judge output is validated leniently (bad ids dropped, missing categories marked
@@ -276,6 +284,7 @@ a cache, re-synced after a run or a retraction):
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
+| `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
 | `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
 | `LARGE_PDF_RANGE_BUDGET_MB` / `LARGE_PDF_MAX_DOWNLOAD_MB` | `48` / `200` | bytes transferred via HTTP Range; largest streamed download (needs 2× free disk) |

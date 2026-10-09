@@ -209,7 +209,7 @@ class Source(Base):
     run_id = Column(Integer, ForeignKey("judgment_runs.id"), nullable=False, index=True)
     url = Column(Text, nullable=False)
     final_url = Column(Text)
-    origin = Column(String(16))        # research | citation | edgar | resolve
+    origin = Column(String(16))        # research | citation | edgar | resolve | discovered
     http_status = Column(Integer)
     content_type = Column(String)
     title = Column(Text)
