@@ -32,3 +32,18 @@ jobs:
           pip install pytest
       - name: Test
         run: pytest
+
+  version-check:
+    # PRs only: a pipeline/prompt/weights/rubric version change or a new migration must come with
+    # an app version bump (app/version.py) and a CHANGELOG.md entry. See docs/RELEASING.md.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check version bump
+        run: python scripts/check_version_bump.py "origin/${{ github.base_ref }}"

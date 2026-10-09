@@ -1,0 +1,65 @@
+# Changelog
+
+All notable changes to the Kardashev Index are recorded here.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
+[Semantic Versioning](https://semver.org/) as described in [docs/RELEASING.md](docs/RELEASING.md).
+
+Component versions (pipeline, prompts, weights, rubrics) are tracked separately in
+`app/pipeline/methodology.py` and `app/pipeline/prompts.py`. Each run records the versions it was
+scored with. Whenever a component version changes, the entry here says so.
+
+## [Unreleased]
+
+## [0.3.0] - Unreleased (to be tagged after merge, with owner approval)
+
+### Added
+- `app/version.py` is now the single source of truth for the app version. `/health`, page
+  footers and `pyproject.toml` all read it.
+- This changelog, `docs/RELEASING.md` (branching, versioning, tagging, rollback) and a pull-request
+  template.
+- A CI check (`version-check`, PRs only) that fails when a pipeline/prompt/weights/rubric version
+  or a database migration changes without an app version bump and a changelog entry.
+
+### Changed
+- The displayed version format is now `v0.3.0`; it used to be `v0.2`.
+
+Component versions unchanged: pipeline-v2.2 · prompts-v2.2 · weights-v1 · rubrics-v1. Latest migration: 0005.
+
+## [0.2.0] - 2026-10-08
+
+Baseline tag for everything shipped after the initial release, up to and including pipeline v2.2.
+
+### Added
+- Measured + judged v2 scoring pipeline: figures are verified against the cited sources, SEC EDGAR
+  filings are used, and each run has a hard budget cap.
+- DB-backed in-process run queue (worker). Approve and re-run return `202`.
+- Judgment runs, stages, sources, evidence and metrics tables (migrations 0002–0005). Every run
+  records the code version.
+- Public run history, admin run list and run detail with live re-run feedback, and a per-figure
+  verification view.
+- Methodology page rendered from the same module that computes the scores.
+- Reliability (v2.2): stage checkpoints, automatic retries with backoff, fetch fallbacks, EDGAR
+  User-Agent, identity pinning, failure alerts (webhook), a stale-run sweep and an
+  "energy undisclosed" ranking marker.
+- e/acc design system restyle. Mobile layout fixes (360–768px, 44px tap targets).
+- Golden-set, reliability and v2.2 rule tests. CI fails on test failures.
+
+### Changed
+- Metric semantics are defined and enforced (pipeline-v2.2, prompts-v2.2).
+- A run that ends with insufficient data never replaces better published data (migration 0004).
+
+### Fixed
+- Admin form actions, suggestion model fields and dual auth (admin session or Hermes key) on
+  internal routes.
+- Figure verification from PDF tables and real-world quote formatting.
+
+## [0.1.0] - 2026-10-08
+
+### Added
+- Initial production release: public leaderboard and company pages, suggestions, admin
+  approve/deny and Postgres via Alembic (migration 0001).
+
+[Unreleased]: https://github.com/wilfullyapt/kardashev-index/compare/v0.2.0...HEAD
+[0.3.0]: https://github.com/wilfullyapt/kardashev-index/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/wilfullyapt/kardashev-index/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/wilfullyapt/kardashev-index/releases/tag/v0.1.0
