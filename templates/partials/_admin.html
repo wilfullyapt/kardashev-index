@@ -15,7 +15,7 @@
 <a class="{{ cls }}" href="/admin/runs/{{ active.id }}" title="A run is already {{ active.status }}">Run #{{ active.id }} {{ active.status }}…</a>
 {%- else -%}
 <form action="/internal/rerun-judgment/{{ company_id }}" method="post" class="inline"
-      onsubmit="return confirm('Re-run {{ name|replace("'", "")|e }} with the current pipeline versions?\n\nThis calls the paid xAI API (typically $0.15–0.30, capped per run). Published data changes only if the new run succeeds.')">
+      data-confirm="Re-run {{ name|e }} with the current pipeline versions?&#10;&#10;This calls the paid xAI API (typically $0.15–0.30, capped per run). Published data changes only if the new run succeeds.">
     <button class="{{ cls }}">{{ label }}</button>
 </form>
 {%- endif -%}
