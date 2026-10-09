@@ -10,6 +10,11 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+### Added
+- Licensing: `LICENSE` (MIT, code), `DATA-LICENSE.md` (CC BY 4.0 for scores, data and methodology
+  text; third-party quotes and figures excluded), `NOTICE.md` (htmx 0BSD, Google Fonts OFL 1.1,
+  project images), README "License" section, footer "Scores licensed CC BY 4.0" line and an
+  `/about#license` section. No scoring or component-version changes.
 ## [0.5.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: ranking methodology change. Component version: **pipeline-v2.2 → pipeline-v2.3**

@@ -61,4 +61,10 @@ Render (`render.yaml`): build runs `alembic upgrade head`; single uvicorn worker
 `XAI_API_KEY`, `HERMES_API_KEY`, `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH` and
 `SEC_EDGAR_USER_AGENT`. Other knobs are listed in [`docs/API.md`](docs/API.md#configuration-environment).
 
-MIT License (once public)
+## License
+
+- **Code:** [MIT](LICENSE), Copyright (c) 2026 Wil Mawhinney.
+- **Scores, data and methodology text:** [CC BY 4.0](DATA-LICENSE.md)
+  ([legal code](https://creativecommons.org/licenses/by/4.0/legalcode)). Credit
+  "Kardashev Index" and link to the site. Quotes and figures from company sources stay with their publishers.
+- **Third-party assets** (htmx, Google Fonts) and project images: see [NOTICE.md](NOTICE.md).
