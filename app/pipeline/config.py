@@ -59,6 +59,12 @@ class Settings:
     # Ranking when energy is undisclosed: coverage is measured over the remaining weight.
     energy_undisclosed_rule: bool = field(default_factory=lambda: _b("RANK_ENERGY_UNDISCLOSED", True))
     energy_undisclosed_min_sources: int = field(default_factory=lambda: _i("RANK_ENERGY_UNDISCLOSED_MIN_SOURCES", 3))
+    # pipeline-v2.4: an energy source that was found but could not be read (too large, unparseable,
+    # 403/429/5xx, timeout, no text layer) makes the run "energy couldn't be read": unranked, admin
+    # alert, and one automatic retry ENERGY_RETRY_DELAY_HOURS later (at most ENERGY_RETRY_MAX in a row).
+    energy_retry_enabled: bool = field(default_factory=lambda: _b("ENERGY_RETRY_ENABLED", True))
+    energy_retry_delay_hours: float = field(default_factory=lambda: _f("ENERGY_RETRY_DELAY_HOURS", 24.0))
+    energy_retry_max: int = field(default_factory=lambda: _i("ENERGY_RETRY_MAX", 1))
     rank_min_coverage: float = field(default_factory=lambda: _f("RANK_MIN_COVERAGE", 0.60))
     rank_min_measured: float = field(default_factory=lambda: _f("RANK_MIN_MEASURED", 0.30))
     # Quality gate on top of coverage (pipeline-v2.3): ranked only if measured share of the scored

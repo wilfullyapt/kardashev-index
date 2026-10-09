@@ -10,6 +10,22 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.7.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: ranking/classification change. Component version: **pipeline-v2.5** (this PR follows
+0.5.1 / #15 and 0.6.0 / #16, which takes pipeline-v2.4; prompts, weights and rubrics unchanged here).
+Bug 1, part 1 of the scoring-bug diagnosis (Tesla shown as "energy undisclosed").
+
+### Changed
+- An energy source that was found but couldn't be read (too large, unparseable PDF, no text layer,
+  HTTP 401/403/429/5xx, timeout) now makes the run **"energy source couldn't be read"**: not ranked
+  (instead of ranked on the remaining 70% with the undisclosed basis), with an admin alert
+  (`energy_unreadable`) and one automatic follow-up run 24 h later (`ENERGY_RETRY_*`; a manual re-run
+  starts it immediately). Dead links and soft 404s don't count.
+- Public label "Energy undisclosed" renamed **"No energy figure found"**; it is used only when every
+  energy-related source we found was readable. Leaderboard mini-bar: "no figure".
+- `/methodology` and `docs/API.md` describe both cases.
+
 ### Added
 - Licensing: `LICENSE` (MIT, code), `DATA-LICENSE.md` (CC BY 4.0 for scores, data and methodology
   text; third-party quotes and figures excluded), `NOTICE.md` (htmx 0BSD, Google Fonts OFL 1.1,

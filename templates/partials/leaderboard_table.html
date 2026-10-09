@@ -39,7 +39,7 @@
                         <span class="minibar__v">{{ '%.1f'|format(cs.score) }}</span>
                         {{ ki.bar(cs.score, false, label) }}
                     </div>
-                    {% elif key == 'energy_throughput' and (run.summary or {}).get('energy_undisclosed') %}<div class="minibar"><span class="minibar__v dim" title="energy undisclosed: ranked on the remaining weight with reduced confidence">undiscl.</span></div>
+                    {% elif key == 'energy_throughput' and (run.summary or {}).get('energy_undisclosed') %}<div class="minibar"><span class="minibar__v dim" title="no energy figure found in readable sources: ranked on the remaining weight with reduced confidence">no figure</span></div>
                     {% else %}<div class="minibar"><span class="minibar__v dim" title="not reported">—</span></div>{% endif %}
                 </td>
                 {% endfor %}
