@@ -251,6 +251,16 @@ a cache, re-synced after a run or a retraction):
   `/internal/alerts`, webhook) and a follow-up run is queued (`trigger: energy_retry`,
   `next_attempt_at` = now + `ENERGY_RETRY_DELAY_HOURS`). A manual re-run starts that queued retry
   immediately. Dead links (404/410) and soft 404s don't count.
+  **Which sources count** (pipeline-v2.9, `app/pipeline/disclosure.py`): only the company's own
+  domain (subdomains included) or a disclosure registry (cdp.net, responsibilityreports.com);
+  third-party news/magazine pages never count. Listing and announcement pages (SEC-filings index,
+  financial results, events, news, press releases, blogs, the IR root) count only when research tagged
+  them `energy` and their claim is about energy consumption. Otherwise the URL/title (or research's
+  claim) must carry an energy-disclosure signal (impact/sustainability/ESG report or data, CDP, GHG,
+  scope 1/2, energy/electricity use, kWh/MWh, data appendix, GRI index), or the URL is the company's
+  own impact/sustainability/ESG page or report PDF. The `energy` tag alone is not enough, and a `thin`
+  page needs the signal in its URL or title. Each listed source carries `counted_as` (why it counted).
+  Without a known company domain the publisher check is skipped.
 - **Daily sweep** (default on): once a day after `SWEEP_HOUR_UTC`, withheld or not-ranked current runs
   older than `SWEEP_MIN_AGE_DAYS` are re-queued, capped at `SWEEP_DAILY_COST_USD` per day (estimated
   `SWEEP_EST_RUN_USD` per run). Logged as `auto_sweep`.
