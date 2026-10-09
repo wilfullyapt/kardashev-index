@@ -29,7 +29,7 @@
                 <div class="mono dim small">submitted {{ s.submitted_at|pt }}</div>
             </div>
             <div class="queue__actions">
-                <form action="/internal/approve/{{ s.id }}" method="post" onsubmit="return confirm('Approve {{ s.name|replace("'", "")|e }}? This queues a measurement run on the paid xAI API.')">
+                <form action="/internal/approve/{{ s.id }}" method="post" data-confirm="Approve {{ s.name|e }}? This queues a measurement run on the paid xAI API.">
                     <button class="btn btn--sm">Approve &amp; measure</button>
                 </form>
                 <form action="/internal/deny/{{ s.id }}" method="post" class="queue__deny">
