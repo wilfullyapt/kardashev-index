@@ -41,7 +41,7 @@ def test_single_unranked_run_shows_unranked_not_ten(client, db):
     _run(db, c, 0, 10.0, ranked=False, coverage=0.15, confidence=0.02, measured=0.15,
          reason="insufficient data: 15% of weight scored (needs 60%)")
     html = client.get(f"/companies/{c.id}").text
-    assert "10.0" not in html
+    assert not re.search(r"(?<![v\d.])10\.0(?![.\d])", html)   # not the footer "v0.10.0"
     assert "Unranked" in _hist_html(html) and "insufficient data: 15% of weight scored" in html
     assert "Unranked · insufficient data" in html          # header band
     assert 'class="gauge__k">Unranked' in html

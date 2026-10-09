@@ -7,7 +7,8 @@ but it never replaces better data:
   * an unranked run replaces an unranked current run only if it scored at least as much weight;
   * an unranked run never replaces real legacy v0 scores (the page keeps the legacy view);
   * otherwise (nothing better exists) it publishes, so the page shows what was verified.
-The same rule is replayed over history by migration 0004 so existing runs follow it too."""
+The same rule is replayed over history by migration 0004 so existing runs follow it too.
+Retraction and "newer pipeline wins" (0.10.0) are applied at read time by ``replay`` below."""
 from __future__ import annotations
 
 from sqlalchemy.orm import Session
