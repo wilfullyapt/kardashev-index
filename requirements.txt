@@ -1,20 +1,20 @@
 fastapi==0.143.0
 starlette==1.7.0  # pinned explicitly: security fixes (>=1.3.1)
-uvicorn[standard]==0.30.6
-sqlalchemy==2.0.35
+uvicorn[standard]==0.54.0
+sqlalchemy==2.1.3
 psycopg2-binary==2.9.13
 python-dotenv==1.2.4
 passlib==1.7.4
-bcrypt==4.1.3
-pydantic==2.12.0
-httpx==0.27.2
+bcrypt==4.3.0
+pydantic==2.13.5
+httpx==0.28.1
 jinja2==3.1.6
 python-multipart==0.0.32
-alembic==1.13.2
+alembic==1.20.0
 # Source fetching and parsing (judgment pipeline)
-beautifulsoup4==4.12.3
+beautifulsoup4==4.15.0
 lxml==6.1.3
 pypdf==6.20.0
-rapidfuzz==3.14.1  # for dedup normalization
+rapidfuzz==3.14.6  # for dedup normalization
 itsdangerous==2.2.0
-tzdata==2025.2
+tzdata==2026.5
