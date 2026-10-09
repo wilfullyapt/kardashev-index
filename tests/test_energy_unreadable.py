@@ -15,7 +15,7 @@ from app.pipeline.runner import ENERGY_RETRY_TRIGGER, execute_run, source_unread
 from app.runs import enqueue_run
 from tests import fakes
 
-IMPACT_URL = "https://www.example-motors.com/impact/2024-extended-impact-report.pdf"
+IMPACT_URL = "https://www.nvidia.com/impact/2024-extended-impact-report.pdf"   # the company's own domain
 
 
 @pytest.mark.parametrize("status,http,reason,expect", [
@@ -96,8 +96,8 @@ def test_dead_energy_link_is_not_unreadable_and_keeps_undisclosed_logic(db):
 def test_unreadable_source_not_about_energy_is_ignored(db):
     llm, routes = _world((403, "text/html", "denied"), covers=("policy_stance",))
     research = llm.responses["research"][0]
-    research["sources"][-1].update(url="https://www.example-motors.com/blog/policy", title="Policy blog")
-    routes = fakes.world_routes({"https://www.example-motors.com/blog/policy": (403, "text/html", "denied")})
+    research["sources"][-1].update(url="https://www.nvidia.com/blog/policy", title="Policy blog")
+    routes = fakes.world_routes({"https://www.nvidia.com/blog/policy": (403, "text/html", "denied")})
     _c, run = _run(db, llm, routes)
     assert run.summary["energy_unreadable"] is None
 

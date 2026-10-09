@@ -235,3 +235,30 @@ def WAYBACK_API_URL(url: str) -> str:
 
     from app.pipeline.fetch import WAYBACK_API
     return WAYBACK_API.format(url=quote(url, safe=""))
+
+
+WAYBACK_FIXTURES = __import__("pathlib").Path(__file__).parent / "fixtures" / "wayback"
+
+
+def wayback_fixture(name: str) -> str:
+    return (WAYBACK_FIXTURES / name).read_text(encoding="utf-8")
+
+
+def WAYBACK_CDX_URL(url: str, n: int = 3) -> str:
+    from urllib.parse import quote
+
+    from app.pipeline.fetch import WAYBACK_CDX
+    return WAYBACK_CDX.format(url=quote(url, safe=""), n=n)
+
+
+def cdx_body(url: str, *stamps: str, mimetype: str = "text/html") -> str:
+    """A CDX answer in the exact shape web.archive.org returns (see fixtures/wayback/cdx_*.json)."""
+    rows = [["timestamp", "original", "mimetype", "statuscode", "length"]]
+    rows += [[ts, url, mimetype, "200", "361077"] for ts in sorted(stamps)]
+    return "[" + ",\n".join(json.dumps(r) for r in rows) + "]\n"
+
+
+def wayback_routes(url: str, copy, ts: str = "20260611033023", mimetype: str = "text/html") -> dict:
+    """CDX lists one 200 capture of ``url``; its raw copy is served by ``copy`` (a route value)."""
+    return {WAYBACK_CDX_URL(url): (200, "application/json", cdx_body(url, ts, mimetype=mimetype)),
+            f"https://web.archive.org/web/{ts}id_/{url}": copy}

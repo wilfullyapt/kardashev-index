@@ -28,6 +28,55 @@ if it merges after them; renumbered on update if it merges first).
   waiting for a future time) and `worker.next_scheduled_at`. `queue_depth` now equals `queued_now`
   (it counted future retries, e.g. a 24 h energy retry, as queued); `retries_scheduled` is a deprecated
   alias of `scheduled`.
+## [0.13.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: ranking-eligibility change. Component version: **pipeline-v2.9** (follows PR A, 0.11.0 /
+pipeline-v2.7, and PR B, 0.12.0 / pipeline-v2.8; prompts, weights and rubrics unchanged). PR C of
+`ki-pipeline-issues-2.md`.
+
+### Changed
+- **"Energy source couldn't be read" counts only the company's own disclosure.** An unreadable
+  source leaves the run unranked only if it is on the company's own domain or a disclosure registry
+  (CDP, ResponsibilityReports) and carries an energy-disclosure signal (or is the company's own
+  impact/sustainability page or report PDF). Third-party articles never count; SEC-filings indexes,
+  press releases, news and blog pages count only when their claim is about energy consumption;
+  research's `energy` tag alone is not enough; a `thin` (JavaScript-shell) page needs the signal in its
+  URL or title. Under v2.6, Tesla #23 was unranked by four 403 sources; under these rules only
+  tesla.com/impact counts. Each listed source now says why it counted (`counted_as`).
+
+## [0.12.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: fetch change. Component version: **pipeline-v2.8** (follows PR A, which takes 0.11.0 /
+pipeline-v2.7; prompts, weights and rubrics unchanged). PR B of `ki-pipeline-issues-2.md`.
+
+### Added
+- **Report-PDF discovery**: a report landing page we could read (original or Wayback copy) has its
+  disclosure PDF links followed, without model calls: newest year and full edition first, at most 2
+  per page and 4 per run (`FETCH_DISCOVER_PER_PAGE`, `FETCH_DISCOVER_MAX`), fetched one at a time
+  through the Wayback fallback and the large-PDF reader. Example: tesla.com/impact (403) → its
+  2026-06-11 Wayback copy → `2024-extended-version-tesla-impact-report.pdf` (403) → its Wayback copy,
+  read by the large-PDF reader. Sources found this way have origin `discovered`.
+
+## [0.11.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: fetch change. Component version: **pipeline-v2.7** (prompts-v2.4, weights-v1, rubrics-v1
+unchanged). Migration **0007** (one additive column). PR A of `ki-pipeline-issues-2.md`.
+
+### Fixed
+- **The Wayback fallback never worked in production**: it asked `web.archive.org/wayback/available`,
+  which answers HTTP 404, and silently gave up. It now lists the newest HTTP-200 captures with the CDX
+  API (falling back to `archive.org/wayback/available` only when CDX fails), so an archived block page
+  (tesla.com/impact's newest capture is Akamai's "Access Denied") is never picked; a copy that still
+  reads as a bot wall is skipped for the next capture (up to three).
+
+### Added
+- `sources.archive_attempt` (migration 0007): what the fallback did for every source that refused us
+  (lookup, outcome, note, capture used, captures tried). When no copy is used, the note is appended to
+  the source's reason, so "energy source couldn't be read" alerts say whether the archive was tried;
+  the admin run page shows a "Wayback: …" badge.
+- Archive.org politeness: at most `FETCH_WAYBACK_MAX_REQUESTS` (16) archive requests per run, two at a
+  time; a 429, 5xx, timeout or the "Temporarily Offline" page (HTTP 200) stops the fallback for the rest
+  of the run. Tests use responses recorded from archive.org (`tests/fixtures/wayback/`).
 
 ## [0.10.0] - Unreleased (untagged; tag after merge with owner approval)
 

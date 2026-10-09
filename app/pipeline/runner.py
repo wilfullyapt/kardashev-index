@@ -14,7 +14,6 @@ Reliability (pipeline-v2.2):
   are recorded on the run and surfaced to admins."""
 from __future__ import annotations
 
-import re
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -36,7 +35,9 @@ from . import semantics as sem
 from .aggregate import aggregate
 from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
-from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, wayback_fetch
+from .disclosure import classify as energy_disclosure
+from .discover import is_report_page, pick, report_links
+from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
 from .largepdf import read_large_pdf, rescue_oversized
 from .llm import LLM, LLMError, LLMResult, extract_json
 from .sources import rank_candidates
@@ -57,8 +58,6 @@ ALWAYS_RERUN = ("compute", "aggregate")   # deterministic and cheap: recomputed 
 
 # A source "found but unreadable": it exists but we could not get its text (vs. dead links / soft 404s).
 UNREADABLE_HTTP = {401, 403, 406, 429, 451, 500, 502, 503, 504}
-_ENERGY_DOC = re.compile(r"impact|sustainab|\besg\b|environment|energy|climate|\bcdp\b|emission|carbon|\bghg\b|"
-                         r"\bgri\b|data[- ]?(?:appendix|table|sheet)|\bkpi", re.IGNORECASE)
 ENERGY_RETRY_TRIGGER = "energy_retry"
 
 
@@ -73,17 +72,22 @@ def source_unreadable(src) -> bool:
     return False
 
 
-def energy_unreadable_sources(db: Session, run_id: int, candidates: list[dict]) -> list[dict]:
-    """Energy-relevant sources of this run that exist but could not be read."""
-    covers = {c.get("url"): set(c.get("covers") or []) for c in candidates or []}
+def energy_unreadable_sources(db: Session, run_id: int, candidates: list[dict],
+                              domain: str | None = None) -> list[dict]:
+    """The company's own energy disclosures in this run that exist but could not be read
+    (rules in app/pipeline/disclosure.py; third-party articles and listing pages never count)."""
+    cand = {c.get("url"): c for c in candidates or []}
     out = []
     for src in db.query(Source).filter(Source.run_id == run_id, Source.origin != "edgar").order_by(Source.id):
         if not source_unreadable(src):
             continue
-        energy = "energy" in covers.get(src.url, set()) or bool(_ENERGY_DOC.search(f"{src.url} {src.title or ''}"))
-        if energy:
+        c = cand.get(src.url) or {}
+        why = energy_disclosure(src.url, src.title or c.get("title"), src.status, c.get("covers") or (),
+                                c.get("why"), domain)
+        if why:
             out.append({"source_id": src.id, "url": src.url, "status": src.status,
-                        "http_status": src.http_status, "reason": (src.reject_reason or "")[:200]})
+                        "http_status": src.http_status, "reason": (src.reject_reason or "")[:200],
+                        "counted_as": why})
     return out
 
 
@@ -459,6 +463,31 @@ def stage_edgar(ctx: RunContext):
                           "concepts": {m: (s[0].concept if s else None) for m, s in fin.items()}})
 
 
+def _discover(ctx: RunContext, results) -> list[dict]:
+    """Report PDFs linked from report landing pages we could read (original or Wayback copy)."""
+    if ctx.s.discover_max <= 0 or ctx.s.discover_per_page <= 0:
+        return []
+    known = {c["url"] for c in ctx.candidates}
+    out: list[dict] = []
+    for c, res, a, _original, _att in results:
+        if a.status not in ("ok", "thin") or not res.body or is_pdf_body(res.content_type, res.body):
+            continue
+        base = c["url"] if res.archived_from else (res.final_url or c["url"])
+        title = a.snapshot.title if a.snapshot and a.snapshot.title else c.get("title")
+        if not is_report_page(base, title, c.get("covers")):
+            continue
+        for lk in pick(report_links(res.body, base), ctx.s.discover_per_page):
+            if len(out) >= ctx.s.discover_max:
+                return out
+            if lk.url in known:
+                continue
+            known.add(lk.url)
+            out.append({"url": lk.url, "title": lk.text or None, "covers": ["energy"], "origin": "discovered",
+                        "why": f"PDF linked from {c['url']}" + (" (archived copy)" if res.archived_from else ""),
+                        "found_on": c["url"]})
+    return out
+
+
 def stage_fetch(ctx: RunContext):
     with ctx.stage("fetch") as st:
         if not ctx.candidates:
@@ -466,31 +495,38 @@ def stage_fetch(ctx: RunContext):
             return
         checker = SourceChecker(ctx.deps.fetcher, **({"probe_token": ctx.deps.probe_token}
                                                      if ctx.deps.probe_token else {}))
-        wayback = ctx.s.wayback_enabled
+        wb = Wayback(ctx.deps.fetcher, max_requests=ctx.s.wayback_max_requests) if ctx.s.wayback_enabled else None
         big_pdf = ctx.deps.large_pdf or (read_large_pdf if isinstance(ctx.deps.fetcher, HttpFetcher) else None)
+
+        def accept(url, res):
+            a = checker.assess(res)
+            if big_pdf is not None:
+                a = rescue_oversized(url, res, a, big_pdf)   # over-cap PDF: relevant pages only
+            return a
 
         def work(c):
             res = ctx.deps.fetcher.get(c["url"])
-            a = checker.assess(res)
-            if big_pdf is not None:
-                a = rescue_oversized(c["url"], res, a, big_pdf)   # over-cap PDF: relevant pages only
-            if a.status != "ok" and wayback and res.status in ARCHIVE_STATUSES:
-                arch = wayback_fetch(ctx.deps.fetcher, c["url"])
+            a = accept(c["url"], res)
+            if a.status != "ok" and wb is not None and res.status in ARCHIVE_STATUSES:
+                arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
                 if arch is not None:
-                    aa = checker.assess(arch)
-                    if big_pdf is not None:
-                        aa = rescue_oversized(c["url"], arch, aa, big_pdf)
-                    if aa.status == "ok":
-                        return c, arch, aa, res
-            return c, res, a, None
+                    return c, arch, aa, res, att
+                return c, res, a, None, att
+            return c, res, a, None, None
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             results = list(pool.map(work, ctx.candidates))
+        discovered = _discover(ctx, results)
+        if discovered:      # one at a time: these are usually large PDFs (large-PDF reader, archive)
+            results += [work(c) for c in discovered]
+            ctx.candidates.extend(discovered)
+            st.cp["discovered"] = discovered
+            st.detail["discovered"] = [{"url": c["url"], "from": c["found_on"]} for c in discovered]
         counts: dict[str, int] = {}
         domain = ctx.entity.get("domain")
         seen_sha: dict[str, int] = {}
-        archived = []
-        for c, res, a, original in results:
+        archived, outcomes = [], {}
+        for c, res, a, original, att in results:
             snap = a.snapshot
             if a.status == "ok" and snap and snap.sha256 in seen_sha:
                 a = type(a)("duplicate", f"same content as source #{seen_sha[snap.sha256]}", snap)
@@ -503,6 +539,11 @@ def stage_fetch(ctx: RunContext):
                          text=snap.text[: ctx.s.snapshot_max_chars] if snap and a.status == "ok" else None,
                          status=a.status, reject_reason=a.reason,
                          is_primary=host_matches(c["url"] if res.archived_from else (res.final_url or c["url"]), domain))
+            if att is not None:                  # every archive attempt is recorded, used or not
+                src.archive_attempt = att.as_dict()
+                outcomes[att.outcome] = outcomes.get(att.outcome, 0) + 1
+                if not res.archived_from:
+                    src.reject_reason = f"{a.reason or a.status}; {att.note}"[:500]
             if res.archived_from:
                 src.archive_url = res.final_url
                 src.archive_timestamp = res.archive_timestamp
@@ -517,6 +558,9 @@ def stage_fetch(ctx: RunContext):
         st.detail["status_counts"] = counts
         if archived:
             st.detail["archived"] = archived
+        if outcomes:
+            st.detail["wayback"] = {"outcomes": outcomes, "requests": wb.requests, "cap": wb.max_requests,
+                                    "stopped": wb.down}
 
 
 def _locate_any(ctx: RunContext, quote: str, sid: int) -> tuple[int, ev.Match | None, bool]:
@@ -867,7 +911,8 @@ def stage_aggregate(ctx: RunContext):
         ok_sources = ctx.db.query(Source).filter(Source.run_id == run.id, Source.status == "ok",
                                                  Source.origin != "edgar").count()
         energy_missing = scores.get("energy_throughput", (None, 0))[0] is None
-        unreadable = energy_unreadable_sources(ctx.db, run.id, ctx.candidates) if energy_missing else []
+        unreadable = (energy_unreadable_sources(ctx.db, run.id, ctx.candidates, ctx.entity.get("domain"))
+                      if energy_missing else [])
         # "No energy figure found" (undisclosed basis) only when no energy source failed to read.
         undisclosed = (ctx.s.energy_undisclosed_rule and energy_missing and not unreadable
                        and ok_sources >= ctx.s.energy_undisclosed_min_sources)
@@ -948,6 +993,8 @@ def _restore(ctx: RunContext):
         ctx.entity = dict(cp.get("entity") or {})
     if ctx.done("research"):
         ctx.candidates = list(cp.get("candidates") or [])
+    if ctx.done("fetch"):
+        ctx.candidates += list(cp.get("discovered") or [])
     sources = {s.id: s for s in db.query(Source).filter(Source.run_id == run_id)}
     if ctx.done("edgar"):
         for e in db.query(Evidence).filter(Evidence.run_id == run_id, Evidence.kind == "filing",

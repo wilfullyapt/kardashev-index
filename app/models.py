@@ -209,7 +209,7 @@ class Source(Base):
     run_id = Column(Integer, ForeignKey("judgment_runs.id"), nullable=False, index=True)
     url = Column(Text, nullable=False)
     final_url = Column(Text)
-    origin = Column(String(16))        # research | citation | edgar | resolve
+    origin = Column(String(16))        # research | citation | edgar | resolve | discovered
     http_status = Column(Integer)
     content_type = Column(String)
     title = Column(Text)
@@ -222,6 +222,7 @@ class Source(Base):
     is_primary = Column(Boolean)
     archive_url = Column(Text)                 # Wayback Machine copy used instead of the original (0005)
     archive_timestamp = Column(String(14))
+    archive_attempt = Column(JSON)             # what the Wayback fallback did, used or not (0007)
 
 
 class Evidence(Base):

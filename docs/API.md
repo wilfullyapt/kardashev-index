@@ -205,6 +205,24 @@ a cache, re-synced after a run or a retraction):
 - **Fetch**: browser-like headers, retries for 429/5xx/timeouts honoring `Retry-After`, and a Wayback
   Machine fallback for 401/403/404/410/451 (stored as `archive_url` / `archive_timestamp` and labelled
   "archived copy" publicly). PDFs are parsed page-capped with a second parser fallback.
+- **Wayback lookup** (pipeline-v2.7): the newest three HTTP-200 captures are listed with the CDX API
+  (`web.archive.org/cdx/search/cdx?...&filter=statuscode:200`), so an archived bot wall (e.g. Akamai's
+  403 page captured as-is) is never chosen; `archive.org/wayback/available` is used only when CDX itself
+  fails (the old `web.archive.org/wayback/available` endpoint answers 404). A copy that reads as a block
+  page ("Access Denied", Cloudflare/captcha walls) is skipped for the next capture. At most
+  `FETCH_WAYBACK_MAX_REQUESTS` archive requests per run (default 16), two at a time; a 429, 5xx,
+  timeout or the "Temporarily Offline" page (served with HTTP 200) stops the fallback for the rest of
+  the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
+  not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
+  copy was used, appended to the source's reason (shown on the admin run page).
+- **Report-PDF discovery** (pipeline-v2.8, `app/pipeline/discover.py`): when a report landing page
+  (research said it covers energy, or its path/title names impact / sustainability / ESG / climate /
+  CDP / energy) could be read, from the original or its Wayback copy, its PDF links that name a
+  disclosure are followed (no model calls). Newest year first, the full edition ("extended", "data",
+  "appendix") before a "highlights"/"summary" edition; once a full edition of a year is chosen, its
+  summary edition and older years are skipped. At most `FETCH_DISCOVER_PER_PAGE` (2) per page and
+  `FETCH_DISCOVER_MAX` (4) per run, fetched one at a time through the normal path (Wayback fallback,
+  large-PDF reader). Stored with origin `discovered`.
 - **Graceful degradation**: the budget cap never discards gathered work: remaining gathering stages
   stop, a reserve is kept for the judge, and the run completes with `run.degraded` listing what was
   skipped. The judge output is validated leniently (bad ids dropped, missing categories marked
@@ -237,6 +255,16 @@ a cache, re-synced after a run or a retraction):
   `/internal/alerts`, webhook) and a follow-up run is queued (`trigger: energy_retry`,
   `next_attempt_at` = now + `ENERGY_RETRY_DELAY_HOURS`). A manual re-run starts that queued retry
   immediately. Dead links (404/410) and soft 404s don't count.
+  **Which sources count** (pipeline-v2.9, `app/pipeline/disclosure.py`): only the company's own
+  domain (subdomains included) or a disclosure registry (cdp.net, responsibilityreports.com);
+  third-party news/magazine pages never count. Listing and announcement pages (SEC-filings index,
+  financial results, events, news, press releases, blogs, the IR root) count only when research tagged
+  them `energy` and their claim is about energy consumption. Otherwise the URL/title (or research's
+  claim) must carry an energy-disclosure signal (impact/sustainability/ESG report or data, CDP, GHG,
+  scope 1/2, energy/electricity use, kWh/MWh, data appendix, GRI index), or the URL is the company's
+  own impact/sustainability/ESG page or report PDF. The `energy` tag alone is not enough, and a `thin`
+  page needs the signal in its URL or title. Each listed source carries `counted_as` (why it counted).
+  Without a known company domain the publisher check is skipped.
 - **Daily sweep** (default on): once a day after `SWEEP_HOUR_UTC`, withheld or not-ranked current runs
   older than `SWEEP_MIN_AGE_DAYS` are re-queued, capped at `SWEEP_DAILY_COST_USD` per day (estimated
   `SWEEP_EST_RUN_USD` per run). Logged as `auto_sweep`.
@@ -273,6 +301,8 @@ a cache, re-synced after a run or a retraction):
 | `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
+| `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
+| `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
 | `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
 | `LARGE_PDF_RANGE_BUDGET_MB` / `LARGE_PDF_MAX_DOWNLOAD_MB` | `48` / `200` | bytes transferred via HTTP Range; largest streamed download (needs 2× free disk) |

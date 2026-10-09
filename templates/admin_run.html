@@ -176,7 +176,7 @@
             <td data-label="Origin" class="mono dim">{{ s.origin or '—' }}</td>
             <td data-label="HTTP" class="mono num dim">{{ s.http_status or '—' }}</td>
             <td data-label="Fetched" class="mono dim nowrap">{{ s.fetched_at|pt('%H:%M:%S') }}</td>
-            <td data-label="Reason" class="small muted wrap-any">{% if s.archive_url %}<span class="runstat runstat--withheld">archived copy {{ (s.archive_timestamp or '')[:4] }}-{{ (s.archive_timestamp or '')[4:6] }}-{{ (s.archive_timestamp or '')[6:8] }}</span> {% endif %}{{ s.reject_reason or '' }}</td>
+            <td data-label="Reason" class="small muted wrap-any">{% if s.archive_url %}<span class="runstat runstat--withheld">archived copy {{ (s.archive_timestamp or '')[:4] }}-{{ (s.archive_timestamp or '')[4:6] }}-{{ (s.archive_timestamp or '')[6:8] }}</span> {% endif %}{% if s.archive_attempt and not s.archive_url %}<span class="runstat runstat--withheld" title="{{ s.archive_attempt.note }}">Wayback: {{ s.archive_attempt.outcome|replace('_', ' ') }}</span> {% endif %}{{ s.reject_reason or '' }}</td>
         </tr>
         {% endfor %}
         </tbody>

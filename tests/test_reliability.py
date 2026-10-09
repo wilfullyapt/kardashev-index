@@ -1,7 +1,6 @@
 """Fault injection: xAI 429/500/timeouts, fetch retries and SEC headers, worker kill mid-stage with
 resume from checkpoint, automatic retry schedule, graceful pause, daily sweep cap, /health and
 /internal/alerts. No network, no paid calls."""
-import json
 from datetime import UTC, datetime, timedelta
 
 import httpx
@@ -10,6 +9,7 @@ import pytest
 from app import alerts, main
 from app.db import SessionLocal
 from app.models import Company, IngestLog, JudgmentRun, JudgmentStage, Source
+from app.pipeline import methodology as meth
 from app.pipeline.config import WorkerSettings
 from app.pipeline.fetch import HttpFetcher, RateLimiter
 from app.pipeline.llm import LLMError, XAIClient
@@ -145,9 +145,7 @@ def test_fetch_403_falls_back_to_wayback_and_is_labelled(db):
     ts = "20250101000000"
     routes = fakes.world_routes({
         fakes.SUSTAIN_URL: (403, "text/html", "<html><title>Forbidden</title></html>"),
-        fakes.WAYBACK_API_URL(fakes.SUSTAIN_URL): (200, "application/json", json.dumps(
-            {"archived_snapshots": {"closest": {"available": True, "status": "200", "timestamp": ts}}})),
-        f"https://web.archive.org/web/{ts}id_/{fakes.SUSTAIN_URL}": fakes.world_routes()[fakes.SUSTAIN_URL],
+        **fakes.wayback_routes(fakes.SUSTAIN_URL, fakes.world_routes()[fakes.SUSTAIN_URL], ts),
     })
     c = _company(db)
     run, _ = enqueue_run(db, c.id, trigger="test", triggered_by="t")
@@ -156,6 +154,7 @@ def test_fetch_403_falls_back_to_wayback_and_is_labelled(db):
     assert run.status == "succeeded" and run.ranked
     src = db.query(Source).filter_by(run_id=run.id, url=fakes.SUSTAIN_URL).one()
     assert src.status == "ok" and src.is_primary and src.archive_timestamp == ts
+    assert src.archive_attempt["outcome"] == "used" and src.archive_attempt["lookup"] == "cdx"
     from fastapi.testclient import TestClient
     page = TestClient(main.app).get(f"/companies/{c.id}").text
     assert "archived copy (Wayback Machine, 2025-01-01)" in page
@@ -359,7 +358,7 @@ def test_health_reports_worker_queue_and_last_run(client, db, monkeypatch):
                        triggered_by="t", finished_at=clock(), attempt=4))
     db.commit()
     body = client.get("/health").json()
-    assert body["status"] == "ok" and body["pipeline_version"] == "pipeline-v2.6"
+    assert body["status"] == "ok" and body["pipeline_version"] == meth.PIPELINE_VERSION
     wk = body["worker"]
     assert wk["alive"] and wk["queue_depth"] == 1 and wk["last_run"]["status"] == "failed"
     assert body["config"]["sec_edgar_user_agent"] is False
