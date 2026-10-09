@@ -64,7 +64,7 @@
             {% for row in companies %}{%- set c = row.company -%}
             <tr>
                 <td data-label="Company"><a href="/companies/{{ c.id }}">{{ c.official_name or c.canonical_name }}</a> <span class="dim mono small">#{{ c.id }}</span>{{ adm.identity_form(c) }}</td>
-                <td data-label="Current" class="mono small">{% if row.current %}<a href="/admin/runs/{{ row.current.id }}">#{{ row.current.id }}</a> · {{ '%.1f'|format(row.current.index_score) if row.current.index_score is not none else '—' }}{% if not row.current.ranked %} nr{% endif %} · {{ row.current.finished_at|pt_date }}{% else %}<span class="dim">none</span>{% endif %}</td>
+                <td data-label="Current" class="mono small">{% if row.current %}<a href="/admin/runs/{{ row.current.id }}">#{{ row.current.id }}</a> · {{ '%.1f'|format(row.current.index_score) if row.current.index_score is not none else '—' }}{% if not row.current.is_ranked %} nr{% endif %} · {{ row.current.finished_at|pt_date }}{% else %}<span class="dim">none</span>{% endif %}</td>
                 <td data-label="Last run" class="mono small">{% if row.last %}<a href="/admin/runs/{{ row.last.id }}">#{{ row.last.id }}</a> {{ adm.status(row.last) }}{% else %}<span class="dim">—</span>{% endif %}</td>
                 <td data-label="Runs" class="mono num"><a href="/admin/runs?company_id={{ c.id }}">{{ row.runs }}</a></td>
                 <td class="actions">{{ adm.rerun(c.id, c.official_name or c.canonical_name, row.last if row.last and row.last.status in ('queued', 'running') else none) }}</td>

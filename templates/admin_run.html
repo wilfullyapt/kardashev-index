@@ -28,7 +28,7 @@
         <div class="runhead__status">
             {{ adm.status(run) }}
             {% if live %}<span class="mono small">{{ ('stage: ' ~ run.current_stage) if run.current_stage else 'waiting for the worker' }}…</span>{% endif %}
-            {% if run.status == 'succeeded' %}<span class="mono small">{{ 'published' if run.published else 'not published' }} · {{ 'ranked' if run.ranked else 'not ranked' }}</span>{% endif %}
+            {% if run.status == 'succeeded' %}<span class="mono small">{{ 'published' if run.published else 'not published' }} · {{ 'ranked' if run.is_ranked else 'not ranked' }}{% if run.ranked and not run.is_ranked %} (was ranked when it ran; fails the current rule){% endif %}</span>{% endif %}
         </div>
         <div class="stagebar stagebar--lg">{% for s in d.stages %}<span class="stagebar__s stagebar__s--{{ s.status }}">{{ s.stage }}{% if s.attempt > 1 %}×{{ s.attempt }}{% endif %} {{ s.duration_ms|dur if s.duration_ms is not none else '…' }}</span>{% else %}<span class="dim small">No stages yet.</span>{% endfor %}</div>
         {% if run.error_type %}

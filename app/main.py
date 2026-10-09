@@ -381,7 +381,7 @@ async def internal_recent_judgments(request: Request, hermes_key: str = None, li
     recent_runs = [{
         "run_id": r.id, "company_id": c.id, "company": c.canonical_name, "status": r.status,
         "index_score": r.index_score, "k_equivalent": r.k_equivalent, "confidence": r.confidence,
-        "ranked": r.ranked, "published": r.published, "cost_usd": r.cost_usd, "duration_ms": r.duration_ms,
+        "ranked": r.is_ranked, "ranked_at_run": r.ranked, "published": r.published, "cost_usd": r.cost_usd, "duration_ms": r.duration_ms,
         "error_type": r.error_type, "finished_at": r.finished_at.isoformat(),
     } for r, c in runs]
 
@@ -686,7 +686,9 @@ def _render_company(request: Request, db: Session, company: Company, hist: dict,
     return templates.TemplateResponse(
         request, "company.html",
         {"request": request, "company": company, "v": view, "hist": hist, "meth": meth, "version": __version__,
-         "cfg_cov": pipeline_settings().rank_min_coverage},
+         "cfg_cov": pipeline_settings().rank_min_coverage,
+         "cfg_share": pipeline_settings().rank_min_measured_share,
+         "cfg_conf": pipeline_settings().rank_min_confidence},
     )
 
 

@@ -164,6 +164,17 @@ class JudgmentRun(Base):
         ),
     )
 
+    @property
+    def is_ranked(self) -> bool:
+        """Ranked under the *current* rules (stored verdict + current quality gate); see app/eligibility.py."""
+        from .eligibility import rank_status
+        return rank_status(self)[0]
+
+    @property
+    def rank_reason(self) -> str | None:
+        from .eligibility import rank_status
+        return rank_status(self)[1]
+
 
 class JudgmentStage(Base):
     __tablename__ = "judgment_stages"
