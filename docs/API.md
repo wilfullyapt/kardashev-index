@@ -1,4 +1,4 @@
-# Internal API (Hermes) — v0.2
+# Internal API (Hermes) — v0.3.0
 
 All `/internal/*` endpoints accept either an admin session cookie or the Hermes key
 (`X-Hermes-Key` header, or `?hermes_key=`). Unauthenticated requests get `401`.
