@@ -129,6 +129,8 @@ class SourceText:
 
 
 _ELLIPSIS = re.compile(r"\s*(?:\[\s*(?:\.\s*){3}\]|\[\s*…\s*\]|\.\s*\.\s*\.|…)\s*")
+# Table dot leaders ("Capital expenditures ........ 2,800", ". . . . ."): layout, not an elision.
+_LEADERS = re.compile(r"(?:\.\s?){4,}|(?:…\s?){2,}|(?:_\s?){4,}")
 
 
 def _edge(s: str) -> int:
@@ -166,9 +168,14 @@ def locate(quote: str, st: SourceText) -> Match | None:
     qn = normalize(quote).strip(" \"'")
     if len(qn) < MIN_QUOTE_CHARS or len(qn) > MAX_QUOTE_CHARS:
         return None
+    quote = _LEADERS.sub(" ", quote)
     pieces = [p for p in _ELLIPSIS.split(quote) if skeleton(p)]
     if len(pieces) > 1:
-        return _locate_elided(pieces, st)
+        m = _locate_elided(pieces, st)
+        if m is not None:
+            return m
+        # "Label ... 2,800": short pieces around a "..." that was really layout — the skeleton
+        # ignores punctuation, so try the quote as one contiguous span.
     q = skeleton(quote)
     if len(q) < MIN_SKELETON_CHARS:
         return None
@@ -344,15 +351,22 @@ def plan(text: str, size: int = CHUNK) -> Plan:
 QUANT_SHARE = 0.6   # of a source's budget for figure-bearing chunks; the rest for qualitative evidence
 
 
-def windows(text: str, budget: int, p: Plan | None = None) -> str:
+def windows(text: str, budget: int, p: Plan | None = None, avoid: set[int] | None = None) -> str:
+    return select(text, budget, p, avoid)[0]
+
+
+def select(text: str, budget: int, p: Plan | None = None, avoid: set[int] | None = None) -> tuple[str, set[int]]:
     """Pick the most relevant ~1 kB chunks of a long document so extraction stays within budget.
     About 60% goes to energy/capacity tables and figures (with the chunk after each strong hit,
     since tables run on), the rest to the most qualitative chunks (launches, build-outs, policy);
     boilerplate ranks last. Chunks are verbatim slices, in document order, separated by GAP, so
     quotes copied from them can be verified against the full text."""
     if len(text) <= budget:
-        return text
+        return text, set()
     p = p or plan(text, min(CHUNK, max(300, budget // 2)))
+    if avoid:   # alternative selection (retry after an empty extraction): other chunks first
+        p = Plan(p.spans, [(-1.0 if i in avoid else x) for i, x in enumerate(p.quant)],
+                 [(-1.0 if i in avoid else x) for i, x in enumerate(p.qual)])
     chosen: set[int] = set()
     used = 0
 
@@ -374,14 +388,15 @@ def windows(text: str, budget: int, p: Plan | None = None) -> str:
             if take(i, cap) and follow is not None and scores[i] >= follow:
                 take(i + 1, cap)
 
-    if budget >= 4 * CHUNK:
+    if budget >= 4 * CHUNK and not avoid:
         take(0, budget)                            # title / lede: who is speaking, which year
     fill(p.quant, int(budget * QUANT_SHARE), follow=10)
     fill(p.qual, budget)
     fill(p.scores, budget)
     if used < budget // 2:                         # little signal: fall back to the start of the document
         for i in range(len(p.spans)):
-            take(i, budget)
+            if not avoid or i not in avoid:
+                take(i, budget)
     out, prev_end = [], None
     for i in sorted(chosen):
         s, e = p.spans[i]
@@ -390,7 +405,7 @@ def windows(text: str, budget: int, p: Plan | None = None) -> str:
         else:
             out.append(text[s:e])
         prev_end = e
-    return GAP.join(out)
+    return GAP.join(out), chosen
 
 
 def allocate(plans: dict, lengths: dict, total: int, per_cap: int, floor: int = 2500) -> dict:

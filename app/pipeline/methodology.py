@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-PIPELINE_VERSION = "pipeline-v2.1"
+PIPELINE_VERSION = "pipeline-v2.2"
 WEIGHTS_VERSION = "weights-v1"
 RUBRIC_VERSION = "rubrics-v1"
 
@@ -17,11 +17,12 @@ CATEGORIES: list[dict] = [
     {
         "key": "energy_throughput", "family": MEASURED, "weight": 0.30,
         "label": "Energy throughput", "short": "Energy", "kicker": "Joules",
-        "what": "Energy the company reports consuming in its own operations, or supplying "
-                "(generation/delivery for energy producers), per year. The larger of the two is used. "
-                "Energy merely 'enabled' (e.g. batteries shipped) is not counted, to avoid double counting.",
-        "inputs": "Reported annual energy or electricity figures (MWh, GWh, TWh, GJ, TJ, PJ, MMBtu) "
-                  "with a verbatim quote from a fetched source.",
+        "what": "Energy the company reports consuming in its own operations, or generating at plants it "
+                "owns or operates, per year. The larger of the two is used. Energy storage deployed or "
+                "shipped (e.g. battery GWh) and energy sold or resold to customers are recorded but never "
+                "scored: they are not energy the company itself used or produced.",
+        "inputs": "Reported annual energy consumption, electricity consumption or own generation "
+                  "(MWh, GWh, TWh, GJ, TJ, PJ, MMBtu) with a verbatim quote from a fetched source.",
         "formula": "P = annual energy (J) / seconds per year → average watts. "
                    "Score = clamp(2.5 × (log₁₀P − 7), 0, 10). Kardashev-equivalent K = (log₁₀P − 6) / 10.",
         "anchors": [("10 MW avg (≈ 88 GWh/yr)", 0), ("100 MW (≈ 0.88 TWh/yr)", 2.5), ("1 GW (≈ 8.8 TWh/yr)", 5),
@@ -41,7 +42,10 @@ CATEGORIES: list[dict] = [
         "label": "Growth gradient", "short": "Growth", "kicker": "Slope",
         "what": "How fast the company is building: capital-expenditure trend (from SEC filings when "
                 "available), revenue trend, and reported energy-use growth.",
-        "inputs": "Annual capex and revenue (SEC XBRL company facts, or quoted figures); energy series.",
+        "inputs": "Annual capex and revenue: SEC XBRL company facts (API URL + accession number) first, else "
+                  "the cash-flow line 'purchases of property and equipment' or company-reported capex quoted "
+                  "from a filing, IR page or annual report. Bonds, funding rounds, deal sizes, planned spend "
+                  "and headlines are rejected. Energy series as above.",
         "formula": "Each available sub-metric's compound annual growth rate (up to 3 years) is mapped "
                    "piecewise-linearly through the anchors, then combined with weights capex 50%, "
                    "revenue 25%, energy 25% (renormalized over what is available).",

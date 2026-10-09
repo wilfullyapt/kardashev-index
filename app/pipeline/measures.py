@@ -22,7 +22,10 @@ CURRENCY_TO_USD = {"USD": 1.0, "USD_thousands": 1e3, "USD_millions": 1e6, "USD_b
 METRIC_UNITS = {
     "energy_consumption": ENERGY_TO_J,
     "electricity_consumption": ENERGY_TO_J,
-    "energy_supplied": ENERGY_TO_J,
+    "energy_generated": ENERGY_TO_J,
+    "energy_sold": ENERGY_TO_J,
+    "energy_storage_deployed": ENERGY_TO_J,
+    "energy_supplied": ENERGY_TO_J,       # legacy (v2.0/v2.1 runs); no longer requested
     "datacenter_capacity_operating": POWER_TO_W,
     "datacenter_capacity_planned": POWER_TO_W,
     "capex": CURRENCY_TO_USD,
@@ -31,7 +34,10 @@ METRIC_UNITS = {
 METRIC_LABELS = {
     "energy_consumption": "Energy consumed",
     "electricity_consumption": "Electricity consumed",
-    "energy_supplied": "Energy supplied",
+    "energy_generated": "Energy generated (own plants)",
+    "energy_sold": "Energy sold / delivered (not scored)",
+    "energy_storage_deployed": "Energy storage deployed (not scored)",
+    "energy_supplied": "Energy supplied (legacy)",
     "datacenter_capacity_operating": "Data-center capacity (operating)",
     "datacenter_capacity_planned": "Data-center capacity (planned)",
     "capex": "Capital expenditure",
@@ -100,6 +106,18 @@ def to_si(metric_key: str, value: float, unit: str) -> float | None:
     if u is None:
         return None
     return float(value) * METRIC_UNITS[metric_key][u]
+
+
+def fmt_num(v: float | None, digits: int = 2) -> str:
+    """Human number: thousands separators, never scientific notation (1053479 -> '1,053,479')."""
+    if v is None:
+        return "—"
+    v = float(v)
+    if v == int(v) and abs(v) < 1e15:
+        return f"{int(v):,}"
+    if abs(v) >= 100:
+        return f"{v:,.0f}" if abs(v) >= 1e4 else f"{v:,.1f}"
+    return f"{v:,.{digits}f}".rstrip("0").rstrip(".")
 
 
 def clamp(x: float, lo: float = 0.0, hi: float = 10.0) -> float:
@@ -227,27 +245,35 @@ def fmt_power(w: float) -> str:
     return f"{w:,.0f} W"
 
 
-def measure_energy(figs: list[Figure], current_year: int) -> tuple[MeasuredResult, dict | None]:
+def measure_energy(figs: list[Figure], current_year: int,
+                   count_generation: bool = True) -> tuple[MeasuredResult, dict | None]:
+    """Energy throughput from energy the company itself consumes (or, optionally, generates at its
+    own plants). Energy sold to customers and storage deployed are recorded but never scored."""
     by_key = {k: [f for f in figs if f.metric_key == k] for k in
-              ("energy_consumption", "electricity_consumption", "energy_supplied")}
+              ("energy_consumption", "electricity_consumption", "energy_generated")}
     consumed, c_conflict = _pick(by_key["energy_consumption"])
     electricity_only = False
     if consumed is None:
         consumed, c_conflict = _pick(by_key["electricity_consumption"])
         electricity_only = consumed is not None
-    supplied, s_conflict = _pick(by_key["energy_supplied"])
+    generated, g_conflict = _pick(by_key["energy_generated"]) if count_generation else (None, False)
     options = [(f, conflict, kind) for f, conflict, kind in
-               ((consumed, c_conflict, "consumed"), (supplied, s_conflict, "supplied")) if f is not None]
+               ((consumed, c_conflict, "consumed"), (generated, g_conflict, "generated")) if f is not None]
     if not options:
-        return MeasuredResult("energy_throughput", None, 0.0,
-                              "No verified annual energy figure was found, so this category is unscored."), None
+        msg = "No verified annual energy-consumption figure was found, so this category is unscored."
+        side = [f for f in figs if f.metric_key in ("energy_storage_deployed", "energy_sold", "energy_supplied")]
+        if side:
+            msg += (" Reported " + ", ".join(sorted({METRIC_LABELS[f.metric_key].split(" (")[0].lower()
+                                                     for f in side}))
+                    + " figures are recorded but are not energy the company consumes.")
+        return MeasuredResult("energy_throughput", None, 0.0, msg), None
     f, conflict, kind = max(options, key=lambda o: o[0].si)
     p = avg_power_w(f.si)
     conf = _figure_conf(f, current_year, conflict) * (0.9 if electricity_only and kind == "consumed" else 1.0)
     score = round(energy_score(p), 2)
     k = kardashev(p)
     what = "electricity consumed" if electricity_only and kind == "consumed" else f"energy {kind}"
-    rationale = (f"Reported {what}: {f.value:,g} {f.unit} ({f.period or 'period not stated'}) = "
+    rationale = (f"Reported {what}: {fmt_num(f.value)} {f.unit} ({f.period or 'period not stated'}) = "
                  f"{_fmt_energy(f.si)} → {fmt_power(p)} average → score {score:.1f}, K = {k:.3f}.")
     if electricity_only:
         rationale += " Electricity only (fuels not included), so this likely understates total energy."
@@ -278,7 +304,7 @@ def measure_compute(figs: list[Figure], current_year: int) -> MeasuredResult:
     mw = f.si / 1e6
     score = round(compute_score(mw), 2)
     conf = _figure_conf(f, current_year, conflict)
-    rationale = (f"Reported operating data-center capacity: {f.value:,g} {f.unit} ({f.period or 'period not stated'})"
+    rationale = (f"Reported operating data-center capacity: {fmt_num(f.value)} {f.unit} ({f.period or 'period not stated'})"
                  f" = {mw:,.0f} MW → score {score:.1f}.")
     inputs = {"value": f.value, "unit": f.unit, "period": f.period, "megawatts": mw, "source_url": f.source_url,
               "conflict": conflict, **extra}
@@ -307,7 +333,7 @@ def measure_growth(figs: list[Figure]) -> MeasuredResult:
     }
     energy = [f for f in figs if f.metric_key == "energy_consumption"] or \
         [f for f in figs if f.metric_key == "electricity_consumption"] or \
-        [f for f in figs if f.metric_key == "energy_supplied"]
+        [f for f in figs if f.metric_key == "energy_generated"]
     groups["energy"] = energy
     ev: list[int] = []
     for name, group in groups.items():
@@ -335,6 +361,7 @@ def measure_growth(figs: list[Figure]) -> MeasuredResult:
     return MeasuredResult("growth", score, round(conf, 3), rationale, {"subs": subs}, ev)
 
 
-def measure_all(figs: list[Figure], current_year: int) -> tuple[list[MeasuredResult], dict | None]:
-    energy, headline = measure_energy(figs, current_year)
+def measure_all(figs: list[Figure], current_year: int,
+                count_generation: bool = True) -> tuple[list[MeasuredResult], dict | None]:
+    energy, headline = measure_energy(figs, current_year, count_generation)
     return [energy, measure_compute(figs, current_year), measure_growth(figs)], headline

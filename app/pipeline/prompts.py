@@ -3,12 +3,14 @@ are passed as delimited data, never as instructions."""
 from __future__ import annotations
 
 import math
+import re
 from datetime import UTC, datetime
 
 from .measures import METRIC_UNITS
 from .methodology import BY_KEY, JUDGED_KEYS, RUBRICS
+from .semantics import DEFINITIONS
 
-PROMPT_VERSION = "prompts-v2.1"
+PROMPT_VERSION = "prompts-v2.2"
 
 
 class StageOutputError(ValueError):
@@ -42,10 +44,11 @@ joules. Use web search. Prefer, in order: the company's own sustainability/ESG/i
 appendices (often PDFs), CDP responses, annual reports and SEC filings, official press releases; then
 reputable press. Give direct URLs to the documents themselves (not search pages, not paywalled pages).
 Find documents that state:
- 1. total annual energy consumption and/or electricity consumption (MWh, GWh, TWh, GJ...) — latest years;
- 2. energy supplied/generated per year, if the company is an energy producer or utility;
+ 1. total annual energy CONSUMED by the company's own operations and/or electricity consumption (MWh,
+    GWh, TWh, GJ...) — latest years (sustainability/impact report data tables, CDP, ESG data appendices);
+ 2. energy generated at the company's own plants, if it is an energy producer or utility;
  3. operating data-center capacity in MW (and any planned capacity);
- 4. capital expenditure trend;
+ 4. reported capital expenditure per fiscal year (cash-flow statement / annual report), not plans;
  5. evidence for: frontier acceleration (capabilities shipped, cost reductions), builder velocity
     (launch cadence, facilities brought online, build times), and public policy positions on permitting,
     energy build-out, open source and regulation.
@@ -61,7 +64,12 @@ def research_user(entity: dict) -> str:
             f" | industry: {entity.get('industry') or 'unknown'}</entity>")
 
 
-METRIC_KEYS = list(METRIC_UNITS)
+# Requested metric keys (energy_supplied is a legacy key, no longer requested; mapped in code).
+METRIC_KEYS = [k for k in METRIC_UNITS if k != "energy_supplied"]
+METRIC_ALIASES = {"energy_supplied": "energy_supplied", "energy_consumed": "energy_consumption",
+                  "electricity_consumed": "electricity_consumption", "energy_storage": "energy_storage_deployed",
+                  "storage_deployed": "energy_storage_deployed", "energy_delivered": "energy_sold"}
+_GLOSSARY = "\n".join(f"- {k}: {DEFINITIONS[k]}" for k in METRIC_KEYS)
 
 EXTRACT_SYSTEM = f"""[stage:extract] You extract evidence from documents we fetched. You never compute,
 convert or estimate: copy numbers and units exactly as written. Every item needs a "quote" copied
@@ -70,10 +78,16 @@ Copy the words as they appear — we check every quote against the fetched docum
 that are not there; differences in spacing, line breaks, hyphenation and quote marks are tolerated.
 Long documents are sent as excerpts separated by "[…]": never join text across that mark.
 {GUARD}
-Allowed metric_key values: {", ".join(METRIC_KEYS)}.
+Allowed metric_key values and what they mean (use the key that matches what the quote describes):
+{_GLOSSARY}
+Examples: "we deployed 46.7 GWh of energy storage products" -> energy_storage_deployed (not consumption);
+"a $20 billion bond offering" or "plans to spend $2.8 billion on gas turbines" -> not capex, omit;
+a cash-flow row "Purchases of property and equipment (11,339) (8,898)" under "(in millions)" -> capex,
+value 11339, unit USD_millions (parentheses mean an outflow; report the positive number).
 Energy units: MWh, GWh, TWh, kWh, PWh, GJ, TJ, PJ, MJ, EJ, MMBtu. Power units: kW, MW, GW.
 Currency units (US dollars only): USD, USD_thousands, USD_millions, USD_billions.
-"value" is a plain JSON number without thousands separators (1,053,479 -> 1053479).
+"value" is a plain JSON number without thousands separators (1,053,479 -> 1053479). When a table states
+its scale ("in millions", "in thousands"), use the matching unit (USD_millions) and the number as printed.
 Data tables (sustainability/ESG indicator tables, often near the end of a report) are flattened to one
 line per row, e.g. "Metric FY26 FY25 FY24 ... Energy consumption 1,053,479 815,864 593,953". Return one
 figure per year column, taking the period from the column header and the unit from the row or section
@@ -200,9 +214,15 @@ def validate_extract(data, source_ids: set[str]) -> tuple[list[dict], list[dict]
             if sid not in source_ids:
                 raise StageOutputError(f"unknown source_id {sid}")
             key = _str(f.get("metric_key"), "metric_key", max_len=48)
+            key = METRIC_ALIASES.get(key, key)
             if key not in METRIC_UNITS:
                 raise StageOutputError(f"unknown metric_key {key}")
-            figures.append({"source_id": sid, "metric_key": key, "value": _num(f.get("value"), "value", 0),
+            value = _num(f.get("value"), "value")
+            if value < 0:
+                if key not in ("capex",):    # capex outflows are printed as (11,339) / -11,339
+                    raise StageOutputError(f"value out of range: {value}")
+                value = -value
+            figures.append({"source_id": sid, "metric_key": key, "value": value,
                             "unit": _str(f.get("unit"), "unit", max_len=24),
                             "period": _str(f.get("period"), "period", False, 16),
                             "scope": _str(f.get("scope"), "scope", False, 200),
@@ -226,42 +246,87 @@ def validate_extract(data, source_ids: set[str]) -> tuple[list[dict], list[dict]
     return figures, claims, rejected
 
 
+_EID = re.compile(r"^\s*\[?E?(\d+)\]?\s*$", re.IGNORECASE)
+
+
+def _coerce_id(i) -> int | None:
+    if isinstance(i, bool):
+        return None
+    if isinstance(i, int):
+        return i
+    if isinstance(i, float) and i.is_integer():
+        return int(i)
+    if isinstance(i, str):
+        m = _EID.match(i)
+        return int(m.group(1)) if m else None
+    return None
+
+
 def validate_judge(data, evidence_ids: set[int]) -> tuple[dict[str, dict], str | None]:
+    """Lenient where it is safe: invalid evidence ids are dropped ("E5" -> 5), unknown or duplicate
+    categories are ignored, a category that is missing or whose score loses all its valid evidence
+    becomes "insufficient". Only an unusable envelope is an error (and triggers one repair).
+    Every adjustment is recorded in out["_notes"]."""
     if not isinstance(data, dict) or not isinstance(data.get("categories"), list):
         raise StageOutputError("expected {'categories': [...]}")
     out: dict[str, dict] = {}
+    notes: list[str] = []
     for item in data["categories"]:
         if not isinstance(item, dict):
-            raise StageOutputError("category entry is not an object")
+            notes.append("dropped a non-object category entry")
+            continue
         cat = item.get("category")
         if cat not in JUDGED_KEYS:
-            raise StageOutputError(f"unknown category: {cat!r}")
+            notes.append(f"ignored unknown category {cat!r}")
+            continue
         if cat in out:
-            raise StageOutputError(f"duplicate category: {cat}")
-        ids = item.get("evidence_ids") or []
-        if not isinstance(ids, list) or any(isinstance(i, bool) or not isinstance(i, int) for i in ids):
-            raise StageOutputError(f"{cat}: evidence_ids must be a list of integers")
-        bad = [i for i in ids if i not in evidence_ids]
-        if bad:
-            raise StageOutputError(f"{cat}: evidence_ids not in the provided evidence: {bad}")
+            notes.append(f"ignored duplicate {cat}")
+            continue
+        raw = item.get("evidence_ids") or []
+        raw = raw if isinstance(raw, list) else [raw]
+        ids, dropped = [], []
+        for i in raw:
+            c = _coerce_id(i)
+            if c is not None and c in evidence_ids:
+                if c not in ids:
+                    ids.append(c)
+            else:
+                dropped.append(i)
+        if dropped:
+            notes.append(f"{cat}: dropped evidence ids not in the provided list: {dropped[:10]}")
         score = item.get("score")
         insufficient = bool(item.get("insufficient_evidence")) or score is None
         if not insufficient:
-            score = round(_num(score, f"{cat}.score", 0, 10), 1)
-            if not ids:
-                raise StageOutputError(f"{cat}: a score needs at least one evidence id")
-        else:
+            try:
+                score = round(_num(score, f"{cat}.score", 0, 10), 1)
+            except StageOutputError as e:
+                notes.append(f"{cat}: {e}; marked insufficient")
+                insufficient, score = True, None
+        if not insufficient and not ids:
+            notes.append(f"{cat}: a score with no valid evidence id is not allowed; marked insufficient")
+            insufficient = True
+        if insufficient:
             score = None
-        out[cat] = {"score": score, "insufficient": insufficient,
-                    "confidence": 0.0 if insufficient else _num(item.get("confidence", 0.5), f"{cat}.confidence", 0, 1),
+        try:
+            conf = 0.0 if insufficient else _num(item.get("confidence", 0.5), f"{cat}.confidence", 0, 1)
+        except StageOutputError:
+            conf = 0.5
+        rationale = item.get("rationale") if isinstance(item.get("rationale"), str) else None
+        out[cat] = {"score": score, "insufficient": insufficient, "confidence": conf,
                     "evidence_ids": ids if not insufficient else [],
-                    "rationale": _str(item.get("rationale"), f"{cat}.rationale", required=not insufficient, max_len=800)
-                    or "Insufficient verified evidence for this rubric."}
-    missing = [k for k in JUDGED_KEYS if k not in out]
-    if missing:
-        raise StageOutputError(f"missing categories: {missing}")
+                    "rationale": ((rationale or "").strip()[:800] or "Scored from the cited evidence.")
+                    if not insufficient else ((rationale or "").strip()[:800]
+                                              or "Insufficient verified evidence for this rubric.")}
+    if not out:
+        raise StageOutputError(f"no usable category entries (need {JUDGED_KEYS})")
+    for k in JUDGED_KEYS:
+        if k not in out:
+            notes.append(f"{k}: missing; marked insufficient")
+            out[k] = {"score": None, "insufficient": True, "confidence": 0.0, "evidence_ids": [],
+                      "rationale": "Insufficient verified evidence for this rubric."}
     synthesis = data.get("synthesis") if isinstance(data.get("synthesis"), str) else None
-    return out, (synthesis or "").strip()[:600] or None
+    out_notes = {"_notes": notes} if notes else {}
+    return {**out, **out_notes}, (synthesis or "").strip()[:600] or None
 
 
 REPAIR = ("Your previous reply was rejected: {error}. Reply again with ONLY the corrected JSON object "

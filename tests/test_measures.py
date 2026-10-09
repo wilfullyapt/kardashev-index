@@ -63,15 +63,15 @@ def test_parse_year(period, year):
     assert M.parse_year(period) == year
 
 
-def test_energy_uses_latest_year_prefers_primary_and_max_of_consumed_supplied():
+def test_energy_uses_latest_year_prefers_primary_and_max_of_consumed_generated():
     figs = [fig("energy_consumption", 400, "GWh", "2022"), fig("energy_consumption", 500, "GWh", "2024", primary=False),
             fig("energy_consumption", 480, "GWh", "2024", primary=True, eid=7)]
     res, _ = M.measure_energy(figs, 2026)
     assert res.inputs["value"] == 480 and res.evidence_ids == [7]
     assert res.confidence == pytest.approx(0.9)  # primary, recent, 500 vs 480 is not a conflict
-    supplied = figs + [fig("energy_supplied", 50, "TWh", "2024", eid=9)]
+    supplied = figs + [fig("energy_generated", 50, "TWh", "2024", eid=9)]
     res2, head2 = M.measure_energy(supplied, 2026)
-    assert res2.inputs["basis"] == "supplied" and head2["avg_power_w"] == pytest.approx(50 * 3.6e15 / M.SECONDS_PER_YEAR)
+    assert res2.inputs["basis"] == "generated" and head2["avg_power_w"] == pytest.approx(50 * 3.6e15 / M.SECONDS_PER_YEAR)
 
 
 def test_energy_confidence_penalties():

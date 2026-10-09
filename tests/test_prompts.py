@@ -23,19 +23,38 @@ def test_valid_judge_output():
     assert synth == "s"
 
 
-@pytest.mark.parametrize("data,msg", [
-    ({"categories": judged()["categories"] + [{"category": "policy_stance", "score": 1, "evidence_ids": [11]}]}, "duplicate"),
-    (judged(policy_stance={"category": "regulatory_stance", "score": 5, "evidence_ids": [11]}), "unknown category"),
-    (judged(policy_stance=None), "missing categories"),
-    (judged(policy_stance={"category": "policy_stance", "score": 10.5, "evidence_ids": [11]}), "out of range"),
-    (judged(policy_stance={"category": "policy_stance", "score": "8", "evidence_ids": [11]}), "finite number"),
-    (judged(policy_stance={"category": "policy_stance", "score": True, "evidence_ids": [11]}), "finite number"),
-    (judged(policy_stance={"category": "policy_stance", "score": 5, "evidence_ids": [99]}), "not in the provided"),
-    (judged(policy_stance={"category": "policy_stance", "score": 5, "evidence_ids": []}), "at least one evidence"),
-    ({"overall": 7}, "expected"),
+@pytest.mark.parametrize("data,note,policy_score", [
+    ({"categories": judged()["categories"] + [{"category": "policy_stance", "score": 1, "evidence_ids": [11]}]},
+     "duplicate", 4.0),
+    (judged(policy_stance={"category": "regulatory_stance", "score": 5, "evidence_ids": [11]}), "unknown category", None),
+    (judged(policy_stance=None), "missing", None),
+    (judged(policy_stance={"category": "policy_stance", "score": 10.5, "evidence_ids": [11]}), "out of range", None),
+    (judged(policy_stance={"category": "policy_stance", "score": "8", "evidence_ids": [11]}), "finite number", None),
+    (judged(policy_stance={"category": "policy_stance", "score": True, "evidence_ids": [11]}), "finite number", None),
+    (judged(policy_stance={"category": "policy_stance", "score": 5, "evidence_ids": [99]}), "not in the provided", None),
+    (judged(policy_stance={"category": "policy_stance", "score": 5, "evidence_ids": []}), "no valid evidence", None),
 ])
-def test_invalid_judge_output(data, msg):
-    with pytest.raises(P.StageOutputError, match=msg):
+def test_judge_validation_is_lenient_and_keeps_valid_scores(data, note, policy_score):
+    """A bad entry never sinks the reply: it is dropped or marked insufficient, valid scores stay."""
+    out, _ = P.validate_judge(data, IDS)
+    notes = out.pop("_notes")
+    assert any(note in n for n in notes), notes
+    assert out["frontier_acceleration"]["score"] in (7.2, 7.3)        # the valid score survives
+    assert out["policy_stance"]["score"] == policy_score
+    assert set(out) == set(P.JUDGED_KEYS)
+
+
+def test_judge_coerces_string_ids_and_drops_invented_ones():
+    data = judged(policy_stance={"category": "policy_stance", "score": 6, "evidence_ids": ["E12", "[E13]", 99, "x"],
+                                 "rationale": "r"})
+    out, _ = P.validate_judge(data, IDS)
+    assert out["policy_stance"]["evidence_ids"] == [12, 13] and out["policy_stance"]["score"] == 6.0
+    assert "99" in " ".join(out["_notes"])
+
+
+@pytest.mark.parametrize("data", [{"overall": 7}, {"categories": []}, {"categories": [{"category": "overall"}]}])
+def test_unusable_judge_envelope_is_an_error(data):
+    with pytest.raises(P.StageOutputError):
         P.validate_judge(data, IDS)
 
 
@@ -45,11 +64,14 @@ def test_extract_drops_malformed_items_but_keeps_good_ones():
         {"source_id": "S9", "metric_key": "energy_consumption", "value": 5, "unit": "TWh", "quote": "q" * 30},
         {"source_id": "S1", "metric_key": "vibes", "value": 5, "unit": "TWh", "quote": "q" * 30},
         {"source_id": "S1", "metric_key": "capex", "value": -3, "unit": "USD", "quote": "q" * 30},
+        {"source_id": "S1", "metric_key": "revenue", "value": -3, "unit": "USD", "quote": "q" * 30},
         {"source_id": "S1", "metric_key": "capex", "value": 3, "unit": "USD"},
     ], "claims": [{"source_id": "S1", "category": "builder_velocity", "claim": "c", "quote": "q" * 30},
                   {"source_id": "S1", "category": "overall", "claim": "c", "quote": "q" * 30}]}
     figs, claims, rejected = P.validate_extract(data, {"S1"})
-    assert len(figs) == 1 and len(claims) == 1 and len(rejected) == 5
+    # capex printed as an outflow "(3)" / -3 is kept as a positive amount; negative revenue is not
+    assert [f["metric_key"] for f in figs] == ["energy_consumption", "capex"] and figs[1]["value"] == 3
+    assert len(claims) == 1 and len(rejected) == 5
     with pytest.raises(P.StageOutputError):
         P.validate_extract({"figures": "nope"}, {"S1"})
 
