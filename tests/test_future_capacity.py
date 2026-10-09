@@ -94,7 +94,7 @@ def test_summary_guard_removes_future_capacity_described_as_operating():
 
 
 def test_prompts_carry_the_rule():
-    assert P.PROMPT_VERSION == "prompts-v2.3"
+    assert P.PROMPT_VERSION >= "prompts-v2.3"
     assert "Under development as of March 2026" in P.EXTRACT_SYSTEM
     assert "never describe it as operating" in P.JUDGE_SYSTEM
 

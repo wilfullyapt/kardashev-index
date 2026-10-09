@@ -163,6 +163,12 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
   ("2024 2023 612,000 489,600") are treated as labelled.
 - **Quotes** are verified against the full fetched text (stored up to `SNAPSHOT_MAX_CHARS`), and a quote
   attributed to the wrong fetched source is matched against the others.
+- **Source preference** (prompts-v2.4, `app/pipeline/sources.py`): research asks for compact data
+  equivalents first (ESG data tables/databooks, KPI or performance-data appendices, GRI/SASB/TCFD
+  indexes, CDP responses, CSV/XLSX, HTML data pages) and lists them before a full impact report, which
+  can be a 100+ MB PDF. Candidates are then re-ordered in code (stable): research picks before bare
+  citations, compact energy data sources boosted, bulky full-report PDFs slightly lowered, so the
+  compact ones survive the `JUDGE_MAX_SOURCES` cut and are fetched and excerpted first.
 - **EDGAR**: XBRL company facts supply revenue and capex (`source_url` = the companyfacts API URL,
   quote carries the accession number). Every sec.gov request sends `SEC_EDGAR_USER_AGENT` and is
   rate-limited to 8 req/s. Without the user agent the stage is skipped and the admin pages show a
@@ -198,6 +204,16 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
   only, and the Index sparkline plots ranked runs only. The Hermes JSON endpoints (`/internal/runs*`,
   `/internal/recent-judgments`) keep the raw `index_score` for diagnostics alongside `ranked`; clients
   must not display it as an Index when `ranked` is false.
+- **Energy source couldn't be read** (pipeline-v2.5): if energy throughput has no verified figure and
+  an energy-related source (research tagged it `energy`, or its URL/title looks like an impact,
+  sustainability, ESG, CDP, emissions or data-table document) exists but could not be read — status
+  `error` (over `FETCH_MAX_BYTES`, unparseable PDF), `thin` (no text layer) or `dead` with HTTP
+  401/403/406/429/451/5xx or a timeout — the run is **not ranked** (`rank_basis: energy_unreadable`,
+  `summary.energy_unreadable` lists the sources), it never takes the "no energy figure found"
+  (formerly "energy undisclosed") basis, an `energy_unreadable` alert is raised (admin banner,
+  `/internal/alerts`, webhook) and a follow-up run is queued (`trigger: energy_retry`,
+  `next_attempt_at` = now + `ENERGY_RETRY_DELAY_HOURS`). A manual re-run starts that queued retry
+  immediately. Dead links (404/410) and soft 404s don't count.
 - **Daily sweep** (default on): once a day after `SWEEP_HOUR_UTC`, withheld or not-ranked current runs
   older than `SWEEP_MIN_AGE_DAYS` are re-queued, capped at `SWEEP_DAILY_COST_USD` per day (estimated
   `SWEEP_EST_RUN_USD` per run). Logged as `auto_sweep`.
@@ -225,6 +241,7 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
 | `JUDGE_MAX_SOURCES` | `12` | candidate sources fetched per run |
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | `0.6` / `0.3` | weight that must be scored to be ranked |
 | `RANK_MIN_MEASURED_SHARE` / `RANK_MIN_CONFIDENCE` | `0.4` / `0.2` | ranked only if measured share of scored weight and confidence are strictly above these |
+| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAY_HOURS` / `ENERGY_RETRY_MAX` | `1` / `24` / `1` | when an energy source was found but couldn't be read: schedule a follow-up run this many hours later, at most this many in a row per company (each is a normal paid run) |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | `64000` / `20000` | document text sent to the extract stage (total / per source) |
 | `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |

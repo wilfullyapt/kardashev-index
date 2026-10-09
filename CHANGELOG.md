@@ -29,6 +29,36 @@ and rubrics unchanged here). Bug 1, part 3 of the scoring-bug diagnosis.
   page lists "Energy Consumption (kWh)" with three numbers whose row labels are icons) is rejected as
   ambiguous with the values in the reason; it is never summed unless the source states a total.
 
+## [0.8.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: research prompt change. Component version: **prompts-v2.4** (this PR follows #16, which takes
+prompts-v2.3, and #17, which takes 0.7.0 / pipeline-v2.5; pipeline, weights and rubrics unchanged
+here). Bug 1, part 2 of the scoring-bug diagnosis.
+
+### Changed
+- Research prefers smaller equivalents of bulky reports: ESG data tables/databooks, KPI or
+  performance-data appendices, GRI/SASB/TCFD indexes, CDP climate responses, CSV/XLSX downloads and
+  HTML data pages, listed before the full impact report (Tesla's is ~129 MB).
+- Candidate sources are re-ordered in code (`app/pipeline/sources.py`) so compact energy data sources
+  survive the `JUDGE_MAX_SOURCES` cut and are fetched first; bulky full-report PDFs are still fetched
+  when there is room.
+
+## [0.7.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: ranking/classification change. Component version: **pipeline-v2.5** (this PR follows
+0.5.1 / #15 and 0.6.0 / #16, which takes pipeline-v2.4; prompts, weights and rubrics unchanged here).
+Bug 1, part 1 of the scoring-bug diagnosis (Tesla shown as "energy undisclosed").
+
+### Changed
+- An energy source that was found but couldn't be read (too large, unparseable PDF, no text layer,
+  HTTP 401/403/429/5xx, timeout) now makes the run **"energy source couldn't be read"**: not ranked
+  (instead of ranked on the remaining 70% with the undisclosed basis), with an admin alert
+  (`energy_unreadable`) and one automatic follow-up run 24 h later (`ENERGY_RETRY_*`; a manual re-run
+  starts it immediately). Dead links and soft 404s don't count.
+- Public label "Energy undisclosed" renamed **"No energy figure found"**; it is used only when every
+  energy-related source we found was readable. Leaderboard mini-bar: "no figure".
+- `/methodology` and `docs/API.md` describe both cases.
+
 ## [0.6.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: metric-correctness change. Component versions: **pipeline-v2.3 → pipeline-v2.4**,

@@ -84,4 +84,4 @@ def test_leaderboard_never_shows_unranked_index(client, db):
     c = _company(db, "extropic")
     _run(db, c, 0, 8.0, ranked=False, coverage=0.15, confidence=0.12, measured=0.0, reason="insufficient data")
     html = client.get("/").text
-    assert "Extropic" in html and "8.0" not in html
+    assert "Extropic" in html and not re.search(r"(?<![v\d.])8\.0(?![.\d])", html)   # not the footer "v0.8.0"
