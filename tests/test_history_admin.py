@@ -23,6 +23,7 @@ def _company(db, name="nvidia"):
 
 
 def _run(db, c, day, index, k=0.18, status="succeeded", published=True, cats=None, cost=0.21, **kw):
+    kw.setdefault("summary", {"measured_coverage": 0.6})  # 0.6 of 0.9 scored: passes the v2.3 quality gate
     r = JudgmentRun(company_id=c.id, status=status, trigger="rerun", triggered_by="t", attempt=1,
                     queued_at=T0 + timedelta(days=day), started_at=T0 + timedelta(days=day, seconds=5),
                     finished_at=T0 + timedelta(days=day, seconds=95), duration_ms=90_000,

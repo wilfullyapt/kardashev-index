@@ -103,7 +103,7 @@ def run_json(db: Session, run: JudgmentRun, *, stages: bool = True, scores: bool
         "reasoning_tokens": run.reasoning_tokens, "tool_calls": run.tool_calls, "cost_usd": run.cost_usd,
         "budget_usd": run.budget_usd, "index_score": run.index_score, "measured_score": run.measured_score,
         "judged_score": run.judged_score, "k_equivalent": run.k_equivalent, "avg_power_w": run.avg_power_w,
-        "confidence": run.confidence, "coverage": run.coverage, "ranked": run.ranked, "published": run.published,
+        "confidence": run.confidence, "coverage": run.coverage, "ranked": run.is_ranked, "ranked_at_run": run.ranked, "published": run.published,
         "error_type": run.error_type, "error": run.error_message, "pipeline_version": run.pipeline_version,
         "prompt_version": run.prompt_version, "rubric_version": run.rubric_version,
         "weights_version": run.weights_version, "prompt_hash": run.prompt_hash, "code_version": run.code_version,
@@ -153,11 +153,11 @@ def leaderboard(db: Session, limit: int = 100, q: str | None = None) -> tuple[li
         run = runs.get(c.current_run_id)
         entry = {"company": c, "run": run, "cats": cats.get(run.id, {}) if run else {},
                  "active": active.get(c.id), "legacy": summarize_scores(legacy.get(c.id, []))}
-        if run and run.ranked:
+        if run and run.is_ranked:
             ranked.append(entry)
         else:
             if run:
-                entry["reason"] = (run.summary or {}).get("not_ranked_reason") or "insufficient data"
+                entry["reason"] = run.rank_reason or "insufficient data"
             elif entry["active"]:
                 entry["reason"] = f"measurement run {entry['active'].status}"
             else:

@@ -755,7 +755,8 @@ def stage_aggregate(ctx: RunContext):
         undisclosed = (ctx.s.energy_undisclosed_rule and energy_missing
                        and ok_sources >= ctx.s.energy_undisclosed_min_sources)
         agg = aggregate(scores, min_coverage=ctx.s.rank_min_coverage, min_measured=ctx.s.rank_min_measured,
-                        energy_undisclosed=undisclosed)
+                        energy_undisclosed=undisclosed, min_measured_share=ctx.s.rank_min_measured_share,
+                        min_confidence=ctx.s.rank_min_confidence)
         run.index_score, run.measured_score, run.judged_score = agg.index_score, agg.measured_score, agg.judged_score
         run.coverage, run.confidence, run.ranked = agg.coverage, agg.confidence, agg.ranked
         if ctx.headline:

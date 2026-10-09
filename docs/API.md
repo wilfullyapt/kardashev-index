@@ -167,6 +167,11 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
 - **Energy undisclosed rule**: with no verified energy figure after at least
   `RANK_ENERGY_UNDISCLOSED_MIN_SOURCES` usable sources, a company can be ranked on the remaining 70% of
   the weight at the same 60% threshold, flagged `energy_undisclosed`, with confidence × 0.8.
+- **Quality gate** (pipeline-v2.3): after either coverage rule passes, a run is ranked only if the
+  measured share of the scored weight (`measured_coverage / coverage`) is > `RANK_MIN_MEASURED_SHARE`
+  (0.40) and `confidence` (0–1; shown as 0–100%) is > `RANK_MIN_CONFIDENCE` (0.20). The gate is also
+  recomputed at display time for stored runs (`app/eligibility.py`); `ranked` in API responses is that
+  effective value and `ranked_at_run` is the verdict stored when the run finished.
 - **Daily sweep** (default on): once a day after `SWEEP_HOUR_UTC`, withheld or not-ranked current runs
   older than `SWEEP_MIN_AGE_DAYS` are re-queued, capped at `SWEEP_DAILY_COST_USD` per day (estimated
   `SWEEP_EST_RUN_USD` per run). Logged as `auto_sweep`.
@@ -193,6 +198,7 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
 | `JUDGE_RESEARCH_MAX_SEARCHES` / `JUDGE_RESOLVE_MAX_SEARCHES` | `8` / `3` | web-search tool-call caps |
 | `JUDGE_MAX_SOURCES` | `12` | candidate sources fetched per run |
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | `0.6` / `0.3` | weight that must be scored to be ranked |
+| `RANK_MIN_MEASURED_SHARE` / `RANK_MIN_CONFIDENCE` | `0.4` / `0.2` | ranked only if measured share of scored weight and confidence are strictly above these |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | `64000` / `20000` | document text sent to the extract stage (total / per source) |
 | `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |

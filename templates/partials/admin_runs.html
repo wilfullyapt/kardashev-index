@@ -14,7 +14,7 @@
             <td data-label="Queued" class="mono dim nowrap">{{ run.queued_at|pt }}</td>
             <td data-label="Time" class="mono num dim nowrap">{{ run.duration_ms|dur }}</td>
             <td data-label="Cost" class="mono num dim">{{ '$%.3f'|format(run.cost_usd) if run.cost_usd is not none else '—' }}</td>
-            <td data-label="Index" class="mono num">{% if run.index_score is not none %}{{ '%.1f'|format(run.index_score) }}{% if not run.ranked %} <span class="dim">nr</span>{% endif %}{% if run.published %} <span title="published">●</span>{% endif %}{% else %}—{% endif %}</td>
+            <td data-label="Index" class="mono num">{% if run.index_score is not none %}{{ '%.1f'|format(run.index_score) }}{% if not run.is_ranked %} <span class="dim">nr</span>{% endif %}{% if run.published %} <span title="published">●</span>{% endif %}{% else %}—{% endif %}</td>
             <td data-label="Versions" class="mono dim small">{{ run.pipeline_version or '—' }}{% if run.code_version %} · {{ run.code_version[:7] }}{% endif %}</td>
         </tr>
         {% else %}

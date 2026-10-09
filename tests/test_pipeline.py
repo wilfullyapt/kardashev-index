@@ -375,7 +375,7 @@ def test_admin_sees_runs_with_stage_timings(admin_client, db, use_deps):
     part = admin_client.get("/admin/runs").text
     assert "succeeded" in part and "reso" in part and "hx-trigger" not in part
     detail = admin_client.get(f"/admin/runs/{run_id}").text
-    assert "hx-trigger" not in detail and "pipeline-v2.2" in detail and "resolve" in detail
+    assert "hx-trigger" not in detail and "pipeline-v2.3" in detail and "resolve" in detail
     # extracted evidence is listed with verification outcome and rejection reasons (debugging empty runs)
     assert "Extracted figures &amp; quotes" in detail and ">no<" in detail and ">yes<" in detail
 

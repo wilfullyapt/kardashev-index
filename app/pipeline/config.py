@@ -61,6 +61,10 @@ class Settings:
     energy_undisclosed_min_sources: int = field(default_factory=lambda: _i("RANK_ENERGY_UNDISCLOSED_MIN_SOURCES", 3))
     rank_min_coverage: float = field(default_factory=lambda: _f("RANK_MIN_COVERAGE", 0.60))
     rank_min_measured: float = field(default_factory=lambda: _f("RANK_MIN_MEASURED", 0.30))
+    # Quality gate on top of coverage (pipeline-v2.3): ranked only if measured share of the scored
+    # weight > RANK_MIN_MEASURED_SHARE and confidence (0-1; shown as 0-100%) > RANK_MIN_CONFIDENCE.
+    rank_min_measured_share: float = field(default_factory=lambda: _f("RANK_MIN_MEASURED_SHARE", 0.40))
+    rank_min_confidence: float = field(default_factory=lambda: _f("RANK_MIN_CONFIDENCE", 0.20))
     llm_max_attempts: int = field(default_factory=lambda: _i("JUDGE_MAX_ATTEMPTS", 2))
 
 
