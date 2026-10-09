@@ -7,6 +7,10 @@ services:
     # let the in-process worker checkpoint and re-queue its run on deploys (WORKER_DRAIN_S=45 < 60)
     maxShutdownDelaySeconds: 60
     envVars:
+      # Pin the runtime (Render's default for new services is 3.14). Must be a full X.Y.Z and must
+      # match .python-version; the env var wins over the file. https://render.com/docs/python-version
+      - key: PYTHON_VERSION
+        value: "3.12.15"
       - key: DATABASE_URL
         fromDatabase:
           name: kardashev-index-db
