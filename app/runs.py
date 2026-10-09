@@ -241,9 +241,11 @@ def company_view(db: Session, company: Company, run: JudgmentRun | None = None,
     summary = run.summary or {}
     view["headline"] = summary.get("headline")
     view["synthesis"] = summary.get("synthesis")
-    pe = view["prev_entry"]
-    if pe and pe["run"].index_score is not None and run.index_score is not None:
-        view["previous"] = {"label": pe["label"], "delta": round(run.index_score - pe["run"].index_score, 2)}
+    # Headline "vs N-x": only between two ranked runs (the latest earlier *ranked* run). An unranked
+    # run's index is a raw number over too little data and is never shown or compared publicly.
+    e = view["entry"]
+    if e and e.get("delta") is not None and e.get("delta_vs"):
+        view["previous"] = {"label": e["delta_vs"], "delta": e["delta"]}
     return view
 
 
@@ -282,13 +284,20 @@ def history(db: Session, company: Company) -> dict:
             cats[cs.run_id][cs.category] = cs.score
     cur = next((i for i, r in enumerate(runs) if r.id == company.current_run_id), len(runs) - 1)
     entries = []
+    last_ranked: tuple[int, JudgmentRun] | None = None    # (index in runs, run) of the latest ranked run so far
     for i, r in enumerate(runs):
-        prev = runs[i - 1] if i else None
-        delta = (round(r.index_score - prev.index_score, 2)
-                 if prev and r.index_score is not None and prev.index_score is not None else None)
+        ranked = bool(r.is_ranked) and r.index_score is not None
+        delta = delta_vs = None
+        if ranked and last_ranked is not None:             # Δ only between ranked runs
+            delta = round(r.index_score - last_ranked[1].index_score, 2)
+            delta_vs = rel_label(last_ranked[0] - cur)
         entries.append({"ordinal": i + 1, "label": rel_label(i - cur), "offset": i - cur, "run": r,
-                        "current": i == cur, "cats": cats.get(r.id, {}), "delta": delta,
+                        "current": i == cur, "cats": cats.get(r.id, {}), "delta": delta, "delta_vs": delta_vs,
+                        "ranked": ranked,
+                        "not_ranked_reason": None if ranked else (r.rank_reason or "insufficient data"),
                         "url": f"/companies/{company.id}" if i == cur else f"/companies/{company.id}/runs/{i + 1}"})
+        if ranked:
+            last_ranked = (i, r)
     rows = db.query(Score).filter(Score.company_id == company.id).all()
     legacy = summarize_scores(rows) if any(not is_placeholder(r) for r in rows) else None
     if legacy:
@@ -307,7 +316,8 @@ def history(db: Session, company: Company) -> dict:
                          for r in withheld[:3]],
             "withheld_total": len(withheld),
             "legacy": legacy if legacy and legacy.get("scores") else None,
-            "spark_index": spark([e["run"].index_score for e in entries], 0, 10),
+            # Index trend over ranked runs only (unranked runs are gaps, never plotted).
+            "spark_index": spark([e["run"].index_score if e["ranked"] else None for e in entries], 0, 10),
             "spark_k": spark([e["run"].k_equivalent for e in entries])}
 
 
