@@ -10,12 +10,7 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
-### Changed
-- Python pinned to 3.12.15 everywhere: `.python-version` (single source for CI), `PYTHON_VERSION`
-  in `render.yaml` (production previously built on Render's default, 3.14.3), the Dockerfile base
-  image, and `requires-python` in `pyproject.toml`.
-
-## [0.3.0] - Unreleased (to be tagged after merge, with owner approval)
+## [0.3.0] - 2026-10-08
 
 ### Added
 - `app/version.py` is now the single source of truth for the app version. `/health`, page
@@ -24,9 +19,24 @@ scored with. Whenever a component version changes, the entry here says so.
   template.
 - A CI check (`version-check`, PRs only) that fails when a pipeline/prompt/weights/rubric version
   or a database migration changes without an app version bump and a changelog entry.
+- A `test-postgres` CI job that runs the full suite against Postgres 17, the production engine.
+- `requirements-dev.txt` pins the dev tools (ruff 0.16.10, pytest 9.1.1). CI installs from it.
 
 ### Changed
+- Python pinned to 3.12.15 everywhere: `.python-version` (single source for CI), `PYTHON_VERSION`
+  in `render.yaml` (production previously built on Render's default, 3.14.3), the Dockerfile base
+  image, and `requires-python` in `pyproject.toml`.
 - The displayed version format is now `v0.3.0`; it used to be `v0.2`.
+- `.env.example` documents every v2.2 setting (EDGAR user agent, alert webhook, sweep, retry and
+  budget settings). The obsolete `OPENAI_API_KEY` is gone.
+- Dockerfile and docker-compose.yml are fixed as a local, production-like stack (Postgres 17,
+  non-root, migrations on start). Render does not use them.
+- `main` is protected: changes go through PRs, squash merge only, and all four CI checks are
+  required.
+
+### Removed
+- The stale `Procfile` (Render starts the app from `render.yaml`), the finished
+  `PUBLIC-PAGES-PLAN.md`, and a committed `.pyc` file.
 
 Component versions unchanged: pipeline-v2.2 · prompts-v2.2 · weights-v1 · rubrics-v1. Latest migration: 0005.
 
@@ -64,7 +74,7 @@ Baseline tag for everything shipped after the initial release, up to and includi
 - Initial production release: public leaderboard and company pages, suggestions, admin
   approve/deny and Postgres via Alembic (migration 0001).
 
-[Unreleased]: https://github.com/wilfullyapt/kardashev-index/compare/v0.2.0...HEAD
-[0.3.0]: https://github.com/wilfullyapt/kardashev-index/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/wilfullyapt/kardashev-index/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/wilfullyapt/kardashev-index/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/wilfullyapt/kardashev-index/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/wilfullyapt/kardashev-index/releases/tag/v0.1.0
