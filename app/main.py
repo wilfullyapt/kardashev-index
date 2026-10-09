@@ -179,9 +179,16 @@ def verify_admin(email: str, password: str) -> bool:
         return False
     return pwd_context.verify(password, ADMIN_PASSWORD_HASH) if ADMIN_PASSWORD_HASH else False
 
-# Simple session stub (cookie for MVP)
+# Admin session: signed cookie (HttpOnly always; Secure in production; SameSite=Lax; 12 h).
+# SECRET_KEY is required in production (see app/security.py) — no shared fallback key.
 from starlette.middleware.sessions import SessionMiddleware
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("SECRET_KEY", "dev-secret"))
+from .security import (LoginThrottle, SecurityMiddleware, SESSION_MAX_AGE_S, session_cookie_secure,
+                       session_secret)
+app.add_middleware(SessionMiddleware, secret_key=session_secret(), https_only=session_cookie_secure(),
+                   same_site="lax", max_age=SESSION_MAX_AGE_S)
+# Outermost: security headers on every response + same-origin check on admin/internal writes.
+app.add_middleware(SecurityMiddleware)
+login_throttle = LoginThrottle()
 
 
 def admin_from_session(request: Request | None) -> str | None:
@@ -210,7 +217,7 @@ async def _http_error(request: Request, exc: StarletteHTTPException):
             and "text/html" in request.headers.get("accept", "")):
         detail = exc.detail if exc.status_code == 404 and exc.detail != "Not Found" else (
             "That page doesn't exist — it may have moved." if exc.status_code == 404 else "Method not allowed.")
-        return templates.TemplateResponse("error.html", {"request": request, "code": exc.status_code,
+        return templates.TemplateResponse(request, "error.html", {"request": request, "code": exc.status_code,
                                                          "detail": detail, "version": __version__},
                                           status_code=exc.status_code)
     return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=getattr(exc, "headers", None))
@@ -611,7 +618,7 @@ def public_leaderboard(request: Request, q: str = None, db: Session = Depends(ge
     verified_sources = (db.query(Source).filter(Source.run_id.in_(published), Source.status == "ok").count()
                         if published else 0)
     return templates.TemplateResponse(
-        "index.html",
+        request, "index.html",
         {
             "request": request,
             "companies": companies,
@@ -672,7 +679,7 @@ def _render_company(request: Request, db: Session, company: Company, hist: dict,
     else:
         view = runs_svc.company_view(db, company, run=entry["run"] if entry else None, hist=hist)
     return templates.TemplateResponse(
-        "company.html",
+        request, "company.html",
         {"request": request, "company": company, "v": view, "hist": hist, "meth": meth, "version": __version__,
          "cfg_cov": pipeline_settings().rank_min_coverage},
     )
@@ -693,7 +700,7 @@ def methodology_page(request: Request):
     from .pipeline import prompts
     cfg = pipeline_settings()
     return templates.TemplateResponse(
-        "methodology.html",
+        request, "methodology.html",
         {"request": request, "meth": meth, "prompt_version": prompts.PROMPT_VERSION, "cfg": cfg,
          "meth_defs": DEFINITIONS, "metric_labels": METRIC_LABELS, "version": __version__},
     )
@@ -701,7 +708,7 @@ def methodology_page(request: Request):
 
 @app.get("/suggest")
 def suggest_form(request: Request):
-    return templates.TemplateResponse("suggest.html", {"request": request, "version": __version__})
+    return templates.TemplateResponse(request, "suggest.html", {"request": request, "version": __version__})
 
 
 @app.post("/suggest")
@@ -714,7 +721,7 @@ def submit_suggestion(
 ):
     if not check_rate_limit(client_ip(request)):
         return templates.TemplateResponse(
-            "suggest.html",
+            request, "suggest.html",
             {"request": request, "version": __version__,
              "error": "Too many suggestions from your network. Please try again in an hour."},
             status_code=429,
@@ -723,7 +730,7 @@ def submit_suggestion(
     dup = find_duplicate_company(db, name, domain)
     if dup:
         return templates.TemplateResponse(
-            "suggest.html",
+            request, "suggest.html",
             {"request": request, "error": f"Company already exists: {dup.canonical_name}", "version": __version__}
         )
 
@@ -737,7 +744,7 @@ def submit_suggestion(
     db.commit()
 
     return templates.TemplateResponse(
-        "suggest.html",
+        request, "suggest.html",
         {"request": request, "success": "Thank you — your suggestion has been submitted for review.", "version": __version__}
     )
 
@@ -752,7 +759,7 @@ def _safe_next(nxt: str | None) -> str:
 def admin_login_form(request: Request, next: str = None):
     if admin_from_session(request):
         return RedirectResponse(_safe_next(next), status_code=302)
-    return templates.TemplateResponse("admin/login.html", {"request": request, "version": __version__,
+    return templates.TemplateResponse(request, "admin/login.html", {"request": request, "version": __version__,
                                                            "next": _safe_next(next)})
 
 
@@ -763,11 +770,25 @@ def admin_login(
     password: str = Form(...),
     next: str = Form(None),
 ):
+    ip = client_ip(request)
+    wait = login_throttle.retry_after(ip)
+    if wait:
+        mins = max(1, (wait + 59) // 60)
+        return templates.TemplateResponse(
+            request, "admin/login.html",
+            {"request": request, "error": f"Too many failed attempts. Try again in about {mins} min.",
+             "version": __version__, "next": _safe_next(next)},
+            status_code=429, headers={"Retry-After": str(wait)},
+        )
     if verify_admin(email, password):
+        login_throttle.success(ip)
+        request.session.clear()  # fresh session on privilege change
         request.session["admin"] = email
         return RedirectResponse(_safe_next(next), status_code=302)
+    login_throttle.failure(ip)
+    logging.getLogger("kardashev.security").warning("admin login failed from %s", ip)
     return templates.TemplateResponse(
-        "admin/login.html",
+        request, "admin/login.html",
         {"request": request, "error": "Invalid credentials", "version": __version__, "next": _safe_next(next)},
         status_code=401,
     )
@@ -845,7 +866,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), current_adm
     high_attempt = db.query(Company).filter(Company.suggestion_attempts > 1).order_by(
         Company.suggestion_attempts.desc()).limit(10).all()
     return templates.TemplateResponse(
-        "admin.html",
+        request, "admin.html",
         {"request": request, "pending": pending, "admin": current_admin, "version": __version__,
          "companies": runs_svc.admin_companies(db), "logs": logs, "high_attempt": high_attempt,
          "runs": runs_svc.admin_runs(db, limit=10), "alerts": _admin_alerts(db), **pop_flash(request)}
@@ -861,7 +882,7 @@ def admin_runs_list(request: Request, company_id: str = None, status: str = None
     data = runs_svc.admin_runs_page(db, company_id=cid, status=status, page=page)
     filters = {k: v for k, v in (("company_id", cid), ("status", status)) if v is not None}
     return templates.TemplateResponse(
-        "admin_runs.html",
+        request, "admin_runs.html",
         {"request": request, "admin": current_admin, "version": __version__, "data": data, "runs": data["rows"],
          "company_id": cid, "status": status, "statuses": runs_svc.RUN_FILTERS,
          "companies": db.query(Company).order_by(Company.canonical_name).all(),
@@ -877,7 +898,7 @@ def admin_run_detail(run_id: int, request: Request, db: Session = Depends(get_db
     if not run:
         raise HTTPException(404, "Run not found")
     return templates.TemplateResponse(
-        "admin_run.html",
+        request, "admin_run.html",
         {"request": request, "admin": current_admin, "version": __version__, "d": runs_svc.admin_run_detail(db, run),
          "meth": meth, "alerts": _admin_alerts(db), **pop_flash(request)},
     )
