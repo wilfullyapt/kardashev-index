@@ -10,6 +10,25 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.14.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: extraction retry behaviour and `/health` fields. Component version: **prompts-v2.5** (pipeline,
+weights and rubrics unchanged). PR D of `ki-pipeline-issues-2.md`; independent of PRs A–C (numbered as
+if it merges after them; renumbered on update if it merges first).
+
+### Changed
+- **Empty extraction**: the model sometimes answers `{"figures": [], "claims": []}` with a normal
+  finish (Anduril #25: output_tokens=12, twice, then queued retries after 2 and 10 minutes that
+  succeeded on the same texts). Now the stage re-asks at once with a nudge (`EXTRACT_NUDGE`), on other
+  excerpts (the full text when a source fits). Empty again with a normal finish → the stage is degraded
+  with diagnostics and the run continues; only a real cut-off (length, content filter, no output)
+  queues a retry. Messages give sources, characters sent/available, output and reasoning tokens and
+  the finish reason.
+- **`/health`**: `worker.queued_now` (runs the worker would start now), `worker.scheduled` (retries
+  waiting for a future time) and `worker.next_scheduled_at`. `queue_depth` now equals `queued_now`
+  (it counted future retries, e.g. a 24 h energy retry, as queued); `retries_scheduled` is a deprecated
+  alias of `scheduled`.
+
 ## [0.10.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: publishing rules and a new admin action. No component version changes (pipeline-v2.6,

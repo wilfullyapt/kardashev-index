@@ -29,7 +29,7 @@ def test_ranking_is_stable_and_ignores_non_energy_data_words():
 
 
 def test_prompt_asks_for_smaller_equivalents():
-    assert P.PROMPT_VERSION == "prompts-v2.4"
+    assert tuple(int(x) for x in P.PROMPT_VERSION.removeprefix("prompts-v").split(".")) >= (2, 4)
     for phrase in ("ESG data tables", "CDP", "HTML data page", "BEFORE the full report", "100+ MB"):
         assert phrase in P.RESEARCH_SYSTEM
 

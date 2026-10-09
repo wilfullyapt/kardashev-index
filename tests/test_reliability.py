@@ -332,6 +332,22 @@ def test_sweep_disabled(db):
 
 
 # ------------------------------------------------------------------ /health and alerts
+def test_health_splits_queued_now_from_scheduled_retries(client, db, monkeypatch):
+    clock = Clock()
+    w = Worker(SessionLocal, lambda: None, now=clock)
+    w.started_at = w.last_tick = clock()
+    monkeypatch.setattr(main, "worker", w)
+    tomorrow = clock() + timedelta(hours=23, minutes=44)
+    for name, nxt in (("a", None), ("b", clock() - timedelta(minutes=1)), ("c", tomorrow)):
+        db.add(JudgmentRun(company_id=_company(db, name).id, status="queued", trigger="t", triggered_by="t",
+                           next_attempt_at=nxt))
+    db.commit()
+    wk = client.get("/health").json()["worker"]
+    assert wk["queued_now"] == 2 and wk["queue_depth"] == 2           # the due retry counts as queued now
+    assert wk["scheduled"] == 1 and wk["retries_scheduled"] == 1
+    assert wk["next_scheduled_at"].startswith(tomorrow.replace(tzinfo=None).isoformat()[:16])
+
+
 def test_health_reports_worker_queue_and_last_run(client, db, monkeypatch):
     clock = Clock()
     w = Worker(SessionLocal, lambda: None, now=clock)

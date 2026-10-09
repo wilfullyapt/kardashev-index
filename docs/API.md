@@ -208,7 +208,11 @@ a cache, re-synced after a run or a retraction):
 - **Graceful degradation**: the budget cap never discards gathered work: remaining gathering stages
   stop, a reserve is kept for the judge, and the run completes with `run.degraded` listing what was
   skipped. The judge output is validated leniently (bad ids dropped, missing categories marked
-  insufficient); an empty extraction is retried once on a different chunk selection.
+  insufficient); an empty extraction is re-asked at once with a nudge (prompts-v2.5) on a different chunk selection (the
+  full text when a source fits). If the model again answers `{"figures": [], "claims": []}` with a normal
+  finish, the stage is degraded with diagnostics (sources, characters sent, output/reasoning tokens,
+  finish reason) and the run continues; only a real cut-off (length, content filter, no output) raises
+  `empty_extraction` and queues a retry.
 - **Energy undisclosed rule**: with no verified energy figure after at least
   `RANK_ENERGY_UNDISCLOSED_MIN_SOURCES` usable sources, a company can be ranked on the remaining 70% of
   the weight at the same 60% threshold, flagged `energy_undisclosed`, with confidence × 0.8.
@@ -240,8 +244,12 @@ a cache, re-synced after a run or a retraction):
   withheld / stuck runs and config warnings; the same list is a banner on the admin pages. If
   `ALERT_WEBHOOK_URL` is set, failures, degradations and stuck runs are POSTed to it as JSON
   (`{"event": ..., "run_id": ..., "company": ..., "text": ...}`; Slack-compatible `text`).
-- **`GET /health`** reports `worker` (`alive`, `last_tick`, `queue_depth`, `current_run_id`, `retries_scheduled`,
-  `last_run` outcome), versions and config flags (`edgar`, `xai`, `webhook`). Public; no secrets.
+- **`GET /health`** reports `worker` (`alive`, `last_tick`, `current_run_id`, `last_run` outcome), versions
+  and config flags (`edgar`, `xai`, `webhook`). Public; no secrets. Queue (0.14.0): `queued_now` = runs
+  the worker would start now (no `next_attempt_at`, or it has passed); `scheduled` = retries waiting for
+  a future `next_attempt_at` (e.g. a 24 h energy retry), with `next_scheduled_at` the earliest.
+  `queue_depth` equals `queued_now` (it used to include future retries); `retries_scheduled` is a
+  deprecated alias of `scheduled`.
 
 ## Unchanged
 

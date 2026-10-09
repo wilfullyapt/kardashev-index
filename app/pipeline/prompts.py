@@ -10,7 +10,7 @@ from .measures import METRIC_UNITS
 from .methodology import BY_KEY, JUDGED_KEYS, RUBRICS
 from .semantics import DEFINITIONS
 
-PROMPT_VERSION = "prompts-v2.4"
+PROMPT_VERSION = "prompts-v2.5"
 
 
 class StageOutputError(ValueError):
@@ -340,6 +340,14 @@ def validate_judge(data, evidence_ids: set[int]) -> tuple[dict[str, dict], str |
     out_notes = {"_notes": notes} if notes else {}
     return {**out, **out_notes}, (synthesis or "").strip()[:600] or None
 
+
+# Re-ask after an empty extraction (prompts-v2.5), sent at once in the same stage instead of waiting
+# minutes for a queued retry. The model often answers {"figures": [], "claims": []} on a first pass.
+EXTRACT_NUDGE = ("You returned no figures and no claims for these documents. Read every source again: list "
+                 "every number with a unit (energy, electricity, MW/GW capacity, kWh/MWh, compute, GPUs, "
+                 "facilities, employees, revenue, capital spending) and every concrete operational claim "
+                 "(launches, build-outs, deployments, policy positions), quoting the text verbatim. Return "
+                 "empty lists only if the documents truly contain no such numbers or claims.")
 
 REPAIR = ("Your previous reply was rejected: {error}. Reply again with ONLY the corrected JSON object "
           "following the schema exactly.")
