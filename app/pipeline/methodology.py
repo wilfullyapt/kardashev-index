@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-PIPELINE_VERSION = "pipeline-v2.5"
+PIPELINE_VERSION = "pipeline-v2.6"
 WEIGHTS_VERSION = "weights-v1"
 RUBRIC_VERSION = "rubrics-v1"
 
@@ -20,7 +20,10 @@ CATEGORIES: list[dict] = [
         "what": "Energy the company reports consuming in its own operations, or generating at plants it "
                 "owns or operates, per year. The larger of the two is used. Energy storage deployed or "
                 "shipped (e.g. battery GWh) and energy sold or resold to customers are recorded but never "
-                "scored: they are not energy the company itself used or produced.",
+                "scored: they are not energy the company itself used or produced. A figure that is one of "
+                "several unlabelled values under one heading (e.g. \"Energy Consumption (kWh)\" followed by "
+                "three numbers whose row labels are icons) is recorded as ambiguous and not scored or summed, "
+                "unless the source itself states a total.",
         "inputs": "Reported annual energy consumption, electricity consumption or own generation "
                   "(MWh, GWh, TWh, GJ, TJ, PJ, MMBtu) with a verbatim quote from a fetched source.",
         "formula": "P = annual energy (J) / seconds per year → average watts. "
