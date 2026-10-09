@@ -188,7 +188,7 @@ def test_admin_run_detail_shows_times_versions_cost_and_errors(admin_client, db,
 def test_rerun_from_admin_confirms_and_handles_conflict(admin_client, db, three_runs):
     c = three_runs.c
     html = admin_client.get("/admin").text
-    assert f'action="/internal/rerun-judgment/{c.id}"' in html and "return confirm(" in html
+    assert f'action="/internal/rerun-judgment/{c.id}"' in html and "data-confirm=\"Re-run " in html
     r = admin_client.post(f"/internal/rerun-judgment/{c.id}", headers={"accept": "text/html"},
                           follow_redirects=False)
     new = db.query(JudgmentRun).filter_by(status="queued").one()

@@ -9,7 +9,7 @@ import tempfile
 _TMP_DIR = tempfile.mkdtemp(prefix="kardashev-tests-")
 os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_TMP_DIR}/test.db"
 for _k in ("XAI_API_KEY", "GROK_API_KEY", "OPENAI_API_KEY", "SEC_EDGAR_USER_AGENT", "XAI_MODEL",
-           "JUDGE_MAX_COST_USD"):
+           "JUDGE_MAX_COST_USD", "RENDER", "APP_ENV", "SESSION_COOKIE_SECURE"):
     os.environ.pop(_k, None)
 os.environ["WORKER_ENABLED"] = "0"
 os.environ["HERMES_API_KEY"] = "test-hermes-key"
@@ -32,6 +32,7 @@ def _fresh_db():
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
     main.RATE_LIMIT.clear()
+    main.login_throttle.reset()
     yield
 
 

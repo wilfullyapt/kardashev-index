@@ -36,7 +36,8 @@
     <link rel="stylesheet" href="/static/css/kardashev.css?v={{ asset_v }}">
 
     <!-- HTMX: live leaderboard search -->
-    <script src="https://unpkg.com/htmx.org@1.9.12" defer></script>
+    <script src="/static/vendor/htmx-1.9.12.min.js" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous" defer></script>
+    <script src="/static/js/app.js" defer></script>
     {% block head %}{% endblock %}
 </head>
 <body class="{% block body_class %}{% endblock %}">
