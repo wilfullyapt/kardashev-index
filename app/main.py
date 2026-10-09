@@ -34,8 +34,8 @@ import rapidfuzz
 load_dotenv()
 log = logging.getLogger("kardashev")
 
-# App versioning
-__version__ = "v0.2"
+# App versioning: single source of truth is app/version.py
+from .version import __version__
 
 # xAI key (existing env var names). The pipeline builds its own httpx client from it.
 XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
@@ -115,6 +115,7 @@ templates.env.filters["pt_date"] = fmt_date
 templates.env.filters["dur"] = fmt_dur
 templates.env.filters["num"] = fmt_num
 templates.env.globals["code_version"] = code_version
+templates.env.globals["version"] = __version__  # pages that don't pass it still show the real version
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="static")
 
 # Admin auth

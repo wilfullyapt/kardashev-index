@@ -14,8 +14,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Install ruff
-        run: pip install ruff
+      - name: Install ruff (pinned in requirements-dev.txt)
+        run: pip install "$(grep -E '^ruff==' requirements-dev.txt)"
       - name: Lint
         run: ruff check .
 
@@ -27,8 +27,54 @@ jobs:
         with:
           python-version: "3.11"
       - name: Install dependencies
-        run: |
-          pip install -r requirements.txt
-          pip install pytest
-      - name: Test
+        run: pip install -r requirements-dev.txt
+      - name: Test (SQLite)
         run: pytest
+
+  test-postgres:
+    # Same suite against Postgres (production database engine), incl. migrations' data fixes.
+    # Required check on main (ruleset).
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: ki
+          POSTGRES_PASSWORD: ki
+          POSTGRES_DB: ki_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ki" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://ki:ki@localhost:5432/ki_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Test (Postgres)
+        run: pytest
+
+  version-check:
+    # PRs only: a pipeline/prompt/weights/rubric version change or a new migration must come with
+    # an app version bump (app/version.py) and a CHANGELOG.md entry. See docs/RELEASING.md.
+    # Required check on main (ruleset). The guard below lets the job report green on branches
+    # created before the versioning PR added the script; once it is on main it always runs.
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Check version bump
+        run: |
+          if [ -f scripts/check_version_bump.py ]; then
+            python scripts/check_version_bump.py "origin/${{ github.base_ref }}"
+          else
+            echo "scripts/check_version_bump.py not present on this branch (pre-versioning); skipping."
+          fi
