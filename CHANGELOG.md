@@ -10,7 +10,35 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.4.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: new public pages and endpoints. Includes everything merged since 0.3.0 (#5, #6, #7 and
+this PR). No scoring, ranking or component-version changes
+(pipeline-v2.2, prompts-v2.2, weights-v1, rubrics-v1 unchanged).
+
+### Added
+- `/about`: what the index is, how scores are made (AI-assisted; xAI Grok), a conflict-of-interest
+  disclosure (the scoring model's maker, xAI, is also ranked), not-investment-advice notice and a
+  corrections section.
+- `/privacy`: the actual data practices. No analytics or tracking cookies; a session cookie only
+  for signed-in admins; suggestion form data; IP addresses held in memory only for rate limiting;
+  Render request logs; Google Fonts; xAI API (company data only).
+- Methodology "Disclosures" section: AI assistance, conflict of interest, measured vs opinion share,
+  not investment advice.
+- Measured share of the scored weight is shown next to each Index on the leaderboard
+  ("meas NN%") and in each entity's Index composition. Display only.
+- Footer: not-investment-advice line with the AI/conflict disclosure, and links to About,
+  Corrections and Privacy.
+- `CONTACT_EMAIL` env var: the corrections/privacy contact. When it's unset or invalid, pages show
+  placeholder text instead of an address.
+
 ### Security
+- Upgraded dependencies with known advisories (pip-audit: 68 advisories → 0). FastAPI 0.115 → 0.143
+  with Starlette pinned at 1.7.0 (was 0.38.6); python-multipart 0.0.9 → 0.0.32; pypdf 5.1 → 6.20;
+  jinja2 3.1.6; lxml 6.1.3; python-dotenv 1.2.4. Templates now use Starlette 1.x's
+  `TemplateResponse(request, name, context)` signature. (#6; this entry was dropped from `main` when
+  #7 was merged and is restored here.)
+- Dependabot version updates (`.github/dependabot.yml`): pip and GitHub Actions, weekly, grouped.
 - Security headers on every response: CSP (`script-src 'self'`, `frame-ancestors 'none'`),
   X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, and HSTS over HTTPS only
   (`HSTS_MAX_AGE`, default 1 day; `HSTS_INCLUDE_SUBDOMAINS` opt-in).
@@ -32,27 +60,6 @@ scored with. Whenever a component version changes, the entry here says so.
 - `/health` returns **503** when the instance can't query the database. It used to return 200 with
   `"status": "degraded"`. A dead or stalled worker still returns 200 (`"status": "degraded"`, worker
   state in the body), so the worker can never cause restarts or failed deploys.
-
-## [0.4.0] - Unreleased (untagged; tag after merge with owner approval)
-
-MINOR: new public pages and endpoints. No scoring, ranking or component-version changes
-(pipeline-v2.2, prompts-v2.2, weights-v1, rubrics-v1 unchanged).
-
-### Added
-- `/about`: what the index is, how scores are made (AI-assisted; xAI Grok), a conflict-of-interest
-  disclosure (the scoring model's maker, xAI, is also ranked), not-investment-advice notice and a
-  corrections section.
-- `/privacy`: the actual data practices. No analytics or tracking cookies; a session cookie only
-  for signed-in admins; suggestion form data; IP addresses held in memory only for rate limiting;
-  Render request logs; Google Fonts; xAI API (company data only).
-- Methodology "Disclosures" section: AI assistance, conflict of interest, measured vs opinion share,
-  not investment advice.
-- Measured share of the scored weight is shown next to each Index on the leaderboard
-  ("meas NN%") and in each entity's Index composition. Display only.
-- Footer: not-investment-advice line with the AI/conflict disclosure, and links to About,
-  Corrections and Privacy.
-- `CONTACT_EMAIL` env var: the corrections/privacy contact. When it's unset or invalid, pages show
-  placeholder text instead of an address.
 
 ## [0.3.0] - 2026-10-08
 
