@@ -141,6 +141,15 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
   for a completed period in a primary source: bonds/notes, funding rounds, deal or order sizes,
   planned/forecast spend and headlines are rejected with a recorded reason. Plausibility bounds,
   parenthesized numbers `( 11,339 )`, dot leaders `....` and table "(in millions)" headers are handled.
+- **Future capacity** (pipeline-v2.4, prompts-v2.3): `datacenter_capacity_operating` is reclassified
+  to `datacenter_capacity_planned` (recorded, not scored) when the quote, its own sentence/table row, or
+  the footnote for a marker in the quote (`*`, `†`, `¹`…, searched ±2,500 characters because PDF text
+  places footnotes anywhere on the page) says planned / under development / under construction; a
+  footnoted figure whose footnote cannot be found is not treated as operating unless the quote says
+  so. Operating capacity whose energy floor (capacity × 1 year × 20%) exceeds 10× the reported
+  energy or electricity consumption (same year ±1) is recorded but not scored, with a flag. Sentences
+  in the synthesis or opinion rationales that describe planned or unscored capacity as operating are
+  removed (`semantics.strip_future_as_current`).
 - **Quotes** are verified against the full fetched text (stored up to `SNAPSHOT_MAX_CHARS`), and a quote
   attributed to the wrong fetched source is matched against the others.
 - **Source preference** (prompts-v2.4, `app/pipeline/sources.py`): research asks for compact data

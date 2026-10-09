@@ -343,7 +343,7 @@ def test_health_reports_worker_queue_and_last_run(client, db, monkeypatch):
                        triggered_by="t", finished_at=clock(), attempt=4))
     db.commit()
     body = client.get("/health").json()
-    assert body["status"] == "ok" and body["pipeline_version"] == "pipeline-v2.3"
+    assert body["status"] == "ok" and body["pipeline_version"] == "pipeline-v2.4"
     wk = body["worker"]
     assert wk["alive"] and wk["queue_depth"] == 1 and wk["last_run"]["status"] == "failed"
     assert body["config"]["sec_edgar_user_agent"] is False

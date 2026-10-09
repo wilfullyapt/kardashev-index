@@ -23,7 +23,7 @@ GATE = {"min_measured_share": 0.40, "min_confidence": 0.20}
 def test_defaults_and_scale():
     s = settings()
     assert s.rank_min_measured_share == 0.40 and s.rank_min_confidence == 0.20
-    assert meth.PIPELINE_VERSION == "pipeline-v2.3"
+    assert meth.PIPELINE_VERSION == "pipeline-v2.4"
 
 
 @pytest.mark.parametrize("share,conf,ok", [
