@@ -33,7 +33,7 @@
         <tr class="{{ 'is-viewing' if viewing == e.label }}">
             <td data-label="Run"><span class="runlbl{{ ' runlbl--cur' if e.current }}">{{ e.label }}</span>{% if e.current %} <span class="dim">current</span>{% endif %}</td>
             <td data-label="Published" class="mono dim">{{ r.finished_at|pt_date }}</td>
-            <td data-label="Index" class="mono num">{% if r.index_score is not none %}{{ '%.1f'|format(r.index_score) }}{% if not r.ranked %} <span class="dim" title="not ranked: insufficient data">nr</span>{% endif %}{% else %}—{% endif %}</td>
+            <td data-label="Index" class="mono num">{% if r.index_score is not none %}{{ '%.1f'|format(r.index_score) }}{% if not r.is_ranked %} <span class="dim" title="not ranked: insufficient data">nr</span>{% endif %}{% else %}—{% endif %}</td>
             <td data-label="Δ vs previous" class="mono num {{ 'up' if e.delta and e.delta >= 0.05 else 'down' if e.delta and e.delta <= -0.05 else 'dim' }}">{% if e.delta is none %}—{% elif e.delta|abs < 0.05 %}0.0{% else %}{{ '%+.1f'|format(e.delta) }}{% endif %}</td>
             <td data-label="K-equiv" class="mono num">{{ '%.3f'|format(r.k_equivalent) if r.k_equivalent is not none else '—' }}</td>
             <td data-label="Method" class="mono dim history__ver">{{ r.pipeline_version }} · {{ r.weights_version }} · {{ r.rubric_version }}</td>

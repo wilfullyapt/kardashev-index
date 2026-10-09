@@ -7,10 +7,10 @@
 {% block title %}{{ name }}{% if hlabel %} · run {{ hlabel }}{% endif %} — Kardashev Index{% endblock %}
 {% block canonical %}{{ origin }}/companies/{{ company.id }}{% endblock %}
 {% block head %}{% if v.historical %}<meta name="robots" content="noindex">{% endif %}{% endblock %}
-{% block description %}{{ name }} on the Kardashev Index: {% if run and run.ranked %}Index {{ '%.1f'|format(run.index_score) }}/10 at {{ '%.0f'|format((run.confidence or 0) * 100) }}% confidence{% if h %}, Kardashev-equivalent K {{ '%.3f'|format(h.k_equivalent) }}{% endif %}{% else %}not yet ranked{% endif %}. Measured from reported energy, compute and growth figures, plus labelled opinion categories.{% endblock %}
+{% block description %}{{ name }} on the Kardashev Index: {% if run and run.is_ranked %}Index {{ '%.1f'|format(run.index_score) }}/10 at {{ '%.0f'|format((run.confidence or 0) * 100) }}% confidence{% if h %}, Kardashev-equivalent K {{ '%.3f'|format(h.k_equivalent) }}{% endif %}{% else %}not yet ranked{% endif %}. Measured from reported energy, compute and growth figures, plus labelled opinion categories.{% endblock %}
 
 {% block content %}
-{%- set ranked = run is not none and run.ranked -%}
+{%- set ranked = run is not none and run.is_ranked -%}
 {%- set score = run.index_score if ranked else none -%}
 {%- set circ = 314.16 -%}
 {%- set frac = ([[score or 0, 0]|max, 10]|min) / 10 -%}
@@ -81,7 +81,7 @@
     <div class="notice" role="status"><span aria-hidden="true">◌</span><span><strong>New measurement {{ 'in progress' if v.active.status == 'running' else 'queued' }}.</strong> {% if v.active.current_stage %}Stage: {{ v.active.current_stage }}. {% endif %}Runs take a few minutes — reload later. Published figures stay as they are unless the new run succeeds.</span></div>
     {% endif %}
     {% if run and not ranked %}
-    <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Not ranked: {{ (run.summary or {}).get('not_ranked_reason') or 'insufficient data' }}.</strong> We publish what was verified, but an entity needs at least {{ '%.0f'|format(cfg_cov * 100) if cfg_cov is defined else '60' }}% of the weight scored — mostly from measured figures — before it is ranked. Missing data is never filled with a default.</span></div>
+    <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Not ranked: {{ run.rank_reason or 'insufficient data' }}.</strong> We publish what was verified, but an entity is ranked only with at least {{ '%.0f'|format(cfg_cov * 100) if cfg_cov is defined else '60' }}% of the weight scored, more than {{ '%.0f'|format(cfg_share * 100) if cfg_share is defined else '40' }}% of the scored weight measured, and confidence above {{ '%.0f'|format(cfg_conf * 100) if cfg_conf is defined else '20' }}%. <a href="/methodology#ranking">Ranking rules</a>. Missing data is never filled with a default.</span></div>
     {% endif %}
     {% if run and (run.summary or {}).get('energy_undisclosed') and ranked %}
     <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Energy undisclosed.</strong> No verified energy-consumption figure was found in the sources we read, so this entity is ranked on the remaining 70% of the weight ({{ '%.0f'|format(((run.summary or {}).get('adjusted_coverage') or 0) * 100) }}% of it scored) with confidence reduced. <a href="/methodology#coverage">How coverage works</a>.</span></div>

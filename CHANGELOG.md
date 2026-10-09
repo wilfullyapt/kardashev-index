@@ -10,6 +10,29 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.5.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: ranking methodology change. Component version: **pipeline-v2.2 → pipeline-v2.3**
+(prompts-v2.2, weights-v1, rubrics-v1 unchanged; no score, weight or anchor changes).
+
+### Changed
+- Ranking quality gate. An entity is ranked only if it passes the existing coverage rule (at least
+  60% of the weight scored with at least 30% measured, or the energy-undisclosed rule) **and** both:
+  - more than 40% of the *scored* weight comes from measured categories (`RANK_MIN_MEASURED_SHARE`,
+    default 0.40), and
+  - confidence is above 20% on the 0-100% scale shown on the site (stored 0-1, so > 0.20;
+    `RANK_MIN_CONFIDENCE`, default 0.20). For energy-undisclosed runs this is the reduced (x0.8)
+    confidence. Both comparisons are strict.
+- The gate is recomputed at display time for every stored run from its stored coverage, confidence
+  and measured coverage (`app/eligibility.py`). Stored `ranked` values and scores are not rewritten
+  and there is no migration; new runs also store the gated verdict. Leaderboard, entity pages,
+  history, recent judgments and the publication rule use the effective status.
+- The daily sweep still uses each run's stored verdict, so this change does not trigger re-runs.
+- `/methodology` (ranking rules), the not-ranked notice and `docs/API.md` describe the new rule.
+
+### Added
+- JSON: runs carry `ranked_at_run` (the stored verdict) next to `ranked` (the effective one).
+
 ## [0.4.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: new public pages and endpoints. Includes everything merged since 0.3.0 (#5, #6, #7 and

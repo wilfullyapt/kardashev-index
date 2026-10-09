@@ -23,7 +23,7 @@ def decide(ranked: bool, coverage: float | None, prev, has_legacy: bool) -> tupl
     if ranked:
         return True, None
     if prev is not None:
-        if prev.ranked:
+        if getattr(prev, "is_ranked", prev.ranked):
             return False, f"kept run {prev.id} published: it was ranked and this run was not"
         if (prev.coverage or 0) > (coverage or 0):
             return False, (f"kept run {prev.id} published: it scored more of the weight "
