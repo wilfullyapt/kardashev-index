@@ -10,6 +10,13 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+### Security
+- Upgraded dependencies with known advisories (pip-audit: 68 advisories → 0). FastAPI 0.115 → 0.143
+  with Starlette pinned at 1.7.0 (was 0.38.6); python-multipart 0.0.9 → 0.0.32; pypdf 5.1 → 6.20;
+  jinja2 3.1.6; lxml 6.1.3; python-dotenv 1.2.4. Templates now use Starlette 1.x's
+  `TemplateResponse(request, name, context)` signature.
+- Dependabot version updates (`.github/dependabot.yml`): pip and GitHub Actions, weekly, grouped.
+
 ### Changed
 - Render now deploys a `main` commit only after its GitHub checks pass (`autoDeployTrigger: checksPass`)
   and uses `/health` as its health check (`healthCheckPath`). The outdated `env: python` /
