@@ -36,7 +36,8 @@ from . import semantics as sem
 from .aggregate import aggregate
 from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
-from .fetch import ARCHIVE_STATUSES, Fetcher, SourceChecker, wayback_fetch
+from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, wayback_fetch
+from .largepdf import read_large_pdf, rescue_oversized
 from .llm import LLM, LLMError, LLMResult, extract_json
 from .sources import rank_candidates
 from .measures import METRIC_LABELS, Figure, canonical_unit, fmt_num, measure_all, to_si
@@ -110,6 +111,7 @@ class Deps:
     probe_token: Callable[[], str] | None = None
     retry: WorkerSettings | None = None
     should_stop: Callable[[], bool] | None = None
+    large_pdf: Callable | None = None      # reader for over-cap PDFs (default: largepdf, real fetcher only)
 
 
 def _utc(dt: datetime | None) -> datetime | None:
@@ -465,14 +467,19 @@ def stage_fetch(ctx: RunContext):
         checker = SourceChecker(ctx.deps.fetcher, **({"probe_token": ctx.deps.probe_token}
                                                      if ctx.deps.probe_token else {}))
         wayback = ctx.s.wayback_enabled
+        big_pdf = ctx.deps.large_pdf or (read_large_pdf if isinstance(ctx.deps.fetcher, HttpFetcher) else None)
 
         def work(c):
             res = ctx.deps.fetcher.get(c["url"])
             a = checker.assess(res)
+            if big_pdf is not None:
+                a = rescue_oversized(c["url"], res, a, big_pdf)   # over-cap PDF: relevant pages only
             if a.status != "ok" and wayback and res.status in ARCHIVE_STATUSES:
                 arch = wayback_fetch(ctx.deps.fetcher, c["url"])
                 if arch is not None:
                     aa = checker.assess(arch)
+                    if big_pdf is not None:
+                        aa = rescue_oversized(c["url"], arch, aa, big_pdf)
                     if aa.status == "ok":
                         return c, arch, aa, res
             return c, res, a, None

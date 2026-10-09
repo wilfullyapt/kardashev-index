@@ -147,6 +147,31 @@ def has_inline_scale(quote: str) -> bool:
     return bool(_INLINE_SCALE.search(quote or ""))
 
 
+_ENERGY_UNIT = r"(?:[kMGT]Wh|GJ|TJ|PJ|MJ|gigajoules?|megawatt[- ]hours?)"
+# "<label> (<unit>) [years] N1 N2 [N3...]": several bare values under one heading, no row labels between
+_UNLABELLED_RUN = re.compile(r"\(\s*" + _ENERGY_UNIT + r"\s*\)\s*"
+                             r"((?:(?:FY\s*)?\d[\d,]*(?:\.\d+)?\s+){1,}\d[\d,]*(?:\.\d+)?)\b", re.IGNORECASE)
+_YEAR = re.compile(r"^(?:FY)?(?:19|20)\d\d$", re.IGNORECASE)
+_TOTAL = re.compile(r"\btotal\b", re.IGNORECASE)
+
+
+def unlabelled_values(quote: str, row_context: str = "") -> list[str]:
+    """The bare values if the quote's figure sits in a run of two or more unlabelled numbers under one
+    unit heading (e.g. Tesla's key-metrics page: "Energy Consumption (kWh) 1,673,681,511 681,364,318
+    1,477,221,711", whose row labels are icons). Empty list otherwise."""
+    for text in (quote or "", row_context or ""):
+        for m in _UNLABELLED_RUN.finditer(text):
+            run = m.group(1).replace("FY ", "FY").split()
+            years = [v for v in run if _YEAR.match(v)]
+            vals = [v for v in run if not _YEAR.match(v)]
+            if len(vals) < 2 or len(years) >= len(vals):
+                continue        # one value, or one value per year column: labelled by the years
+            nums_in_quote = re.findall(r"\d[\d,]*(?:\.\d+)?", quote or "")
+            if text is quote or any(v in vals for v in nums_in_quote):
+                return vals
+    return []
+
+
 def check_figure(metric_key: str, *, quote: str, period: str | None, is_primary: bool,
                  current_year: int, row_context: str = "", footnotes: list[str] | tuple = ()) -> Verdict:
     """Semantic checks on one verified figure. ``row_context`` is the source text right around the
@@ -174,6 +199,12 @@ def check_figure(metric_key: str, *, quote: str, period: str | None, is_primary:
             return Verdict(True, "energy_sold", note="energy sold/delivered is not own generation")
         if metric_key in SCORED_ENERGY and year is not None and year > current_year:
             return Verdict(False, metric_key, "future period: a plan, not a reported figure")
+        if metric_key in SCORED_ENERGY and not _TOTAL.search(q):
+            vals = unlabelled_values(q, row_context)
+            if vals:
+                return Verdict(False, metric_key,
+                               f"ambiguous: {len(vals)} unlabelled values under one heading "
+                               f"({', '.join(vals[:4])}); not scored or summed unless the source states a total")
         return Verdict(True, metric_key)
 
     if metric_key == "datacenter_capacity_operating":
