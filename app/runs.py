@@ -1,6 +1,7 @@
 """Run queueing and read models (leaderboard rows, company dossier, admin/run JSON)."""
 from __future__ import annotations
 
+import re
 from collections import defaultdict
 from datetime import UTC
 from urllib.parse import urlsplit
@@ -12,7 +13,43 @@ from .judgment import is_placeholder, summarize_scores
 from .models import (ACTIVE_RUN_STATUSES, CategoryScore, Company, Evidence, JudgmentRun, JudgmentStage, Metric,
                      Score, Source)
 from .pipeline import methodology as meth
-from .pipeline.measures import METRIC_LABELS, fmt_power
+from .pipeline.evidence import normalize
+from .pipeline.measures import METRIC_LABELS, fmt_num, fmt_power
+
+_SCI = re.compile(r"\b\d(?:\.\d+)?e[+-]?\d+\b", re.IGNORECASE)
+
+
+def fix_sci(text: str | None, values: list[float] | tuple = ()) -> str | None:
+    """Stored text from older runs printed numbers like '1.05348e+06'. Show the exact figure when
+    one of ``values`` matches it, else a plain rounded number (display only)."""
+    if not text or "e" not in text.lower():
+        return text
+
+    def repl(m):
+        x = float(m.group(0))
+        for v in values:
+            if v and abs(v - x) <= 1e-5 * abs(v):
+                return fmt_num(v)
+        return fmt_num(round(x))
+    return _SCI.sub(repl, text)
+
+
+def dedupe_evidence(items: list[dict]) -> list[dict]:
+    """Drop repeated quotes (same text from the same domain) so evidence lists don't echo."""
+    seen, out = set(), []
+    for e in items:
+        key = (normalize(e.get("quote") or ""), e.get("domain"))
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+    return out
+
+
+def is_empty_run(r: JudgmentRun) -> bool:
+    """A completed run that scored nothing at all (e.g. the early v2.0 runs whose extraction
+    returned empty). Hidden from public history unless it is the current run; admins see it."""
+    return not (r.coverage or 0) and r.index_score is None
 
 
 def active_run(db: Session, company_id: int) -> JudgmentRun | None:
@@ -171,15 +208,18 @@ def company_view(db: Session, company: Company, run: JudgmentRun | None = None,
             return None
         s = sources.get(e.source_id)
         url = (e.context if e.kind == "filing" else None) or (s.final_url or s.url if s else None)
-        return {"id": e.id, "kind": e.kind, "claim": e.claim, "quote": e.quote, "url": url,
+        return {"id": e.id, "kind": e.kind, "claim": fix_sci(e.claim, [e.value or 0]), "quote": e.quote, "url": url,
                 "domain": _domain(url), "title": s.title if s else None,
                 "fetched_at": s.fetched_at if s else None, "period": e.period}
 
     for cs in db.query(CategoryScore).filter(CategoryScore.run_id == run.id):
         meta = meth.BY_KEY.get(cs.category, {"label": cs.category, "short": cs.category, "kicker": ""})
+        inputs = cs.inputs or {}
+        nums = [v for v in (inputs.get("value"), inputs.get("megawatts")) if isinstance(v, (int, float))]
         item = {"key": cs.category, "meta": meta, "family": cs.family, "score": cs.score,
-                "confidence": cs.confidence, "weight": cs.weight, "rationale": cs.rationale, "inputs": cs.inputs or {},
-                "evidence": [x for x in (ev_json(i) for i in (cs.evidence_ids or [])) if x],
+                "confidence": cs.confidence, "weight": cs.weight, "rationale": fix_sci(cs.rationale, nums),
+                "inputs": inputs,
+                "evidence": dedupe_evidence([x for x in (ev_json(i) for i in (cs.evidence_ids or [])) if x]),
                 "prev": prev_scores.get(cs.category), "delta": None}
         if cs.score is not None and item["prev"] is not None:
             item["delta"] = round(cs.score - item["prev"], 1)
@@ -234,7 +274,7 @@ def parse_rel(ref: str) -> int | None:
 def history(db: Session, company: Company) -> dict:
     """Public history: published runs oldest→newest with stable ordinals (1, 2, …) and labels
     relative to the current run (N, N-1, …), category scores, deltas and sparkline series."""
-    runs = published_runs(db, company.id)
+    runs = [r for r in published_runs(db, company.id) if r.id == company.current_run_id or not is_empty_run(r)]
     ids = [r.id for r in runs]
     cats: dict[int, dict[str, float | None]] = defaultdict(dict)
     if ids:

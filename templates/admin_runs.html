@@ -13,6 +13,7 @@
     <div class="dossier__meta"><span class="chip">{{ data.total }} run{{ '' if data.total == 1 else 's' }}</span></div>
 </div>
 {{ adm.nav('runs') }}
+{{ adm.alerts_banner(alerts) }}
 
 <form class="filters" method="get" action="/admin/runs">
     <div class="field">

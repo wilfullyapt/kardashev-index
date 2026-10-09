@@ -25,3 +25,43 @@
 <span class="runstat runstat--{{ run.status }}">{{ run.status }}</span>
 {%- if run.status == 'succeeded' and not run.published %} <span class="runstat runstat--withheld" title="{{ (run.summary or {}).get('publish_note') or 'not published' }}">withheld</span>{% endif -%}
 {%- endmacro -%}
+
+{#- Operational alerts banner (failed / retrying / degraded / withheld runs, config warnings). -#}
+{%- macro alerts_banner(a) -%}
+{%- if a and a.count -%}
+<section class="alerts" aria-label="Alerts">
+    {%- for w in a.config %}
+    <div class="flash flash--err"><span class="flash__tag">config</span><span>{{ w.message }}</span></div>
+    {%- endfor %}
+    {%- set groups = [('failed', 'Failed', a.failed), ('stuck', 'Stuck', a.stuck), ('retrying', 'Retry scheduled', a.retrying), ('degraded', 'Degraded', a.degraded), ('withheld', 'Withheld', a.withheld)] -%}
+    {%- for key, label, items in groups if items %}
+    <div class="alerts__row alerts__row--{{ key }}">
+        <span class="alerts__tag">{{ label }} · {{ items|length }}</span>
+        {%- for r in items[:6] %}
+        <a class="alerts__item" href="{{ r.url }}" title="{{ (r.error or r.reason or (r.degraded|join('; ') if r.degraded else '') or '')|e }}">#{{ r.run_id }} {{ r.company or '' }}{% if r.error_type %} <span class="dim">{{ r.error_type }}</span>{% endif %}{% if key == 'retrying' and r.next_attempt_at %} <span class="dim">attempt {{ r.attempt }}</span>{% endif %}</a>
+        {%- endfor %}
+        {%- if items|length > 6 %}<a class="alerts__item dim" href="/admin/runs?status={{ 'failed' if key == 'failed' else ('withheld' if key == 'withheld' else 'queued') }}">+{{ items|length - 6 }} more</a>{% endif %}
+    </div>
+    {%- endfor %}
+    <p class="hint">Last {{ a.window_days }} days · also at <span class="mono">/internal/alerts</span> for Hermes{% if a.webhook %} · webhook on{% endif %}.</p>
+</section>
+{%- endif -%}
+{%- endmacro -%}
+
+{#- Resolved identity: reused across runs; an admin can correct and pin it, or clear it. -#}
+{%- macro identity_form(c) -%}
+{%- set i = c.identity or {} -%}
+<details class="identity"{% if c.identity_status == 'pinned' %} open{% endif %}>
+    <summary class="mono small">identity: {{ c.identity_status or 'not saved' }}{% if c.identity_resolved_at %} · {{ c.identity_resolved_at|pt_date }}{% endif %}{% if i.identity_check %} · SEC {{ i.identity_check.status }}{% endif %}</summary>
+    <form action="/admin/companies/{{ c.id }}/identity" method="post" class="identity__form">
+        <label>Official name <input name="official_name" value="{{ i.official_name or c.official_name or '' }}" required maxlength="200"></label>
+        <label>Domain <input name="domain" value="{{ i.domain or c.domain or '' }}" maxlength="120"></label>
+        <label>Ticker <input name="ticker" value="{{ i.ticker or '' }}" maxlength="16"></label>
+        <label>Exchange <input name="exchange" value="{{ i.exchange or '' }}" maxlength="32"></label>
+        <label>SEC CIK <input name="cik" value="{{ i.cik or '' }}" maxlength="10" pattern="[0-9]*"></label>
+        <label>Public <select name="is_public"><option value="">unknown</option><option value="1"{% if i.is_public %} selected{% endif %}>yes</option><option value="0"{% if i.is_public == false %} selected{% endif %}>no</option></select></label>
+        <button class="btn btn--sm" name="action" value="pin">Save &amp; pin</button>
+        <button class="btn btn--sm btn--ghost" name="action" value="clear" formnovalidate>Clear (re-resolve next run)</button>
+    </form>
+</details>
+{%- endmacro -%}

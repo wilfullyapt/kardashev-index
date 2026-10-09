@@ -21,6 +21,7 @@
     </div>
 </div>
 {{ adm.nav('runs') }}
+{{ adm.alerts_banner(alerts) }}
 
 <div id="run-live"{% if live %} hx-get="/admin/runs/{{ run.id }}" hx-select="#run-live" hx-trigger="every 3s" hx-swap="outerHTML"{% endif %} aria-live="polite">
     <section class="runhead">
@@ -31,8 +32,12 @@
         </div>
         <div class="stagebar stagebar--lg">{% for s in d.stages %}<span class="stagebar__s stagebar__s--{{ s.status }}">{{ s.stage }}{% if s.attempt > 1 %}×{{ s.attempt }}{% endif %} {{ s.duration_ms|dur if s.duration_ms is not none else '…' }}</span>{% else %}<span class="dim small">No stages yet.</span>{% endfor %}</div>
         {% if run.error_type %}
-        <div class="flash flash--err runhead__err"><span class="flash__tag">{{ run.error_type }}</span><span class="wrap-any">{{ run.error_message or '' }}</span></div>
+        <div class="flash flash--err runhead__err"><span class="flash__tag">{{ run.error_type }}{% if run.error_class %} · {{ run.error_class }}{% endif %}</span><span class="wrap-any">{{ run.error_message or '' }}</span></div>
         {% endif %}
+        {% if run.status == 'queued' and run.next_attempt_at %}<p class="hint">Automatic retry scheduled for {{ run.next_attempt_at|pt('%Y-%m-%d %H:%M') }} (after attempt {{ run.attempt }}); it resumes from its last completed stage.</p>{% endif %}
+        {% if run.degraded %}<div class="flash runhead__err"><span class="flash__tag">degraded</span><span class="wrap-any">{{ run.degraded|join(' · ') }}</span></div>{% endif %}
+        {% if run.summary and run.summary.flags %}<p class="hint">Flags: {{ run.summary.flags|join(' · ') }}</p>{% endif %}
+        {% if run.summary and run.summary.identity_check %}{%- set ic = run.summary.identity_check -%}<p class="hint">Identity check: <span class="mono">{{ ic.status }}</span>{% if ic.registrant %} · SEC registrant {{ ic.registrant }}{% endif %}{% if ic.note %} · {{ ic.note }}{% endif %}</p>{% endif %}
         {% if run.summary and run.summary.publish_note %}<p class="hint">{{ run.summary.publish_note }}</p>{% endif %}
     </section>
 
@@ -43,6 +48,7 @@
             <dt>Finished</dt><dd class="mono">{{ run.finished_at|pt('%Y-%m-%d %H:%M:%S') }}</dd>
             <dt>Duration</dt><dd class="mono">{{ run.duration_ms|dur }}</dd>
             <dt>Attempt</dt><dd class="mono">{{ run.attempt }}{% if run.worker_id %} · <span class="dim">{{ run.worker_id }}</span>{% endif %}</dd>
+            <dt>Checkpoint</dt><dd class="mono small">{{ ((run.checkpoint or {}).get('done') or [])|join(' → ') or '—' }}</dd>
         </dl>
         <dl class="facts__g">
             <dt>Pipeline</dt><dd class="mono">{{ run.pipeline_version or '—' }}</dd>
@@ -64,6 +70,7 @@
             <dt>Coverage / conf.</dt><dd class="mono">{{ '%.0f%%'|format(run.coverage * 100) if run.coverage is not none else '—' }} · {{ '%.0f%%'|format(run.confidence * 100) if run.confidence is not none else '—' }}</dd>
             <dt>Ranked / published</dt><dd class="mono">{{ run.ranked if run.ranked is not none else '—' }} · {{ run.published if run.published is not none else '—' }}</dd>
             {% if run.summary and run.summary.not_ranked_reason %}<dt>Not ranked</dt><dd>{{ run.summary.not_ranked_reason }}</dd>{% endif %}
+            {% if run.summary and run.summary.rank_basis == 'energy_undisclosed' %}<dt>Rank basis</dt><dd>energy undisclosed · {{ '%.0f%%'|format((run.summary.adjusted_coverage or 0) * 100) }} of the remaining weight</dd>{% endif %}
         </dl>
     </div>
 
@@ -122,17 +129,17 @@
     <p class="eyebrow">Extracted figures &amp; quotes ({{ d.evidence_verified }} verified / {{ d.evidence_total }} proposed)</p>
     <div class="table-scroll">
     <table class="data-table data-table--stack">
-        <thead><tr><th>Kept</th><th>Kind</th><th>Category / metric</th><th>Value</th><th>Quote</th><th>Source</th><th>Rejected because</th></tr></thead>
+        <thead><tr><th>Kept</th><th>Kind</th><th>Category / metric</th><th>Value</th><th>Quote</th><th>Source</th><th>Rejected because / note</th></tr></thead>
         <tbody>
         {% for e in d.evidence %}{%- set src = d.source_by_id.get(e.source_id) -%}
         <tr>
             <td data-label="Kept" class="mono"><span class="runstat runstat--{{ 'succeeded' if e.quote_verified else 'failed' }}">{{ 'yes' if e.quote_verified else 'no' }}</span></td>
             <td data-label="Kind" class="mono dim">{{ e.kind }}</td>
             <td data-label="Category" class="mono small">{{ e.metric_key or e.category or '—' }}{% if e.period %} · {{ e.period }}{% endif %}</td>
-            <td data-label="Value" class="mono small nowrap">{% if e.value is not none %}{{ '{:,.0f}'.format(e.value) if e.value == (e.value|round(0)) else '{:,.2f}'.format(e.value) }}{% else %}—{% endif %} {{ (e.unit or '')|replace('_', ' ') }}</td>
+            <td data-label="Value" class="mono small nowrap">{% if e.value is not none %}{{ e.value|num }}{% else %}—{% endif %} {{ (e.unit or '')|replace('_', ' ') }}</td>
             <td data-label="Quote" class="small muted wrap-any">{{ (e.quote or e.claim or '')|truncate(260) }}</td>
             <td data-label="Source" class="mono small wrap-any">{% if src %}<a href="{{ src.final_url or src.url }}" target="_blank" rel="noopener nofollow noreferrer">#{{ src.id }}</a>{% else %}—{% endif %}</td>
-            <td data-label="Rejected" class="small wrap-any">{{ e.rejected_reason or '' }}</td>
+            <td data-label="Rejected" class="small wrap-any">{{ e.rejected_reason or '' }}{% if e.note %}<div class="dim">{{ e.note }}</div>{% endif %}</td>
         </tr>
         {% endfor %}
         </tbody>
@@ -155,7 +162,7 @@
             <td data-label="Origin" class="mono dim">{{ s.origin or '—' }}</td>
             <td data-label="HTTP" class="mono num dim">{{ s.http_status or '—' }}</td>
             <td data-label="Fetched" class="mono dim nowrap">{{ s.fetched_at|pt('%H:%M:%S') }}</td>
-            <td data-label="Reason" class="small muted wrap-any">{{ s.reject_reason or '' }}</td>
+            <td data-label="Reason" class="small muted wrap-any">{% if s.archive_url %}<span class="runstat runstat--withheld">archived copy {{ (s.archive_timestamp or '')[:4] }}-{{ (s.archive_timestamp or '')[4:6] }}-{{ (s.archive_timestamp or '')[6:8] }}</span> {% endif %}{{ s.reject_reason or '' }}</td>
         </tr>
         {% endfor %}
         </tbody>

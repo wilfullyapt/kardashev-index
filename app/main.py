@@ -13,10 +13,13 @@ import os
 from dotenv import load_dotenv
 from .db import get_db, SessionLocal
 from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, CATEGORIES  # noqa: F401 (re-exported)
+from . import alerts as alerts_svc
 from . import runs as runs_svc
 from .pipeline import methodology as meth
-from .pipeline.config import code_version, settings as pipeline_settings
+from .pipeline.config import code_version, settings as pipeline_settings, worker_settings
 from .pipeline.fetch import HttpFetcher
+from .pipeline.measures import METRIC_LABELS, fmt_num
+from .pipeline.semantics import DEFINITIONS
 from .pipeline.llm import XAIClient
 from .pipeline.runner import Deps
 from .worker import Worker
@@ -42,8 +45,10 @@ def build_deps() -> Deps:
     """Production dependencies for a judgment run (fresh settings each run, so env changes apply)."""
     cfg = pipeline_settings()
     llm = XAIClient(XAI_API_KEY, base_url=cfg.xai_base_url, chat_timeout_s=cfg.chat_timeout_s,
-                    search_timeout_s=cfg.search_timeout_s, max_retries=cfg.max_retries) if XAI_API_KEY else None
-    return Deps(llm=llm, fetcher=HttpFetcher(timeout_s=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes),
+                    search_timeout_s=cfg.search_timeout_s, max_retries=cfg.max_retries,
+                    backoff_max_s=cfg.backoff_max_s) if XAI_API_KEY else None
+    return Deps(llm=llm, fetcher=HttpFetcher(timeout_s=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes,
+                                             retries=cfg.fetch_retries, sec_user_agent=cfg.sec_user_agent),
                 settings=cfg)
 
 
@@ -58,9 +63,17 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        # Graceful drain: stop claiming; the current stage finishes and the run is re-queued at its
+        # checkpoint (resumed by the next instance). If the stage outlives WORKER_DRAIN_S, the process
+        # exits anyway and stale-run recovery resumes it from the last completed stage.
         worker.stop()
         if task:
-            task.cancel()
+            try:
+                await asyncio.wait_for(task, timeout=worker_settings().drain_s)
+            except (TimeoutError, asyncio.CancelledError):
+                pass
+            except Exception:  # pragma: no cover
+                log.exception("worker drain failed")
 
 
 app = FastAPI(title="Kardashev Index", lifespan=lifespan)
@@ -100,6 +113,7 @@ def fmt_dur(ms) -> str:
 templates.env.filters["pt"] = fmt_pt
 templates.env.filters["pt_date"] = fmt_date
 templates.env.filters["dur"] = fmt_dur
+templates.env.filters["num"] = fmt_num
 templates.env.globals["code_version"] = code_version
 app.mount("/static", StaticFiles(directory=Path(__file__).resolve().parent.parent / "static"), name="static")
 
@@ -262,8 +276,23 @@ def wants_html(request: Request) -> bool:
 # ===== PUBLIC ROUTES =====
 
 @app.get("/health")
-async def health():
-    return {"status": "ok", "service": "kardashev-index", "version": __version__}
+def health():
+    """Liveness plus worker status: alive, queue depth, scheduled retries, last run outcome."""
+    from .pipeline import prompts
+    w = worker.status()
+    status = "ok" if (w["alive"] or not w["enabled"]) and "db_error" not in w else "degraded"
+    return {"status": status, "service": "kardashev-index", "version": __version__,
+            "pipeline_version": meth.PIPELINE_VERSION, "prompt_version": prompts.PROMPT_VERSION,
+            "code_version": code_version(), "worker": w,
+            "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
+                       "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
+
+
+@app.get("/internal/alerts")
+def internal_alerts(request: Request, hermes_key: str = None, days: int = 7, db: Session = Depends(get_db)):
+    """Failed / retrying / degraded / withheld / stuck runs and configuration warnings (Hermes)."""
+    require_internal(request, hermes_key)
+    return alerts_svc.collect(db, days=max(1, min(days, 90)))
 
 
 # ===== HERMES INTERNAL ENDPOINTS (admin session or Hermes key) =====
@@ -644,7 +673,7 @@ def methodology_page(request: Request):
     return templates.TemplateResponse(
         "methodology.html",
         {"request": request, "meth": meth, "prompt_version": prompts.PROMPT_VERSION, "cfg": cfg,
-         "version": __version__},
+         "meth_defs": DEFINITIONS, "metric_labels": METRIC_LABELS, "version": __version__},
     )
 
 
@@ -728,6 +757,65 @@ def admin_logout(request: Request):
     return RedirectResponse("/admin/login", status_code=302)
 
 
+def _admin_alerts(db: Session) -> dict:
+    a = alerts_svc.collect(db)
+    a["webhook"] = bool(os.getenv("ALERT_WEBHOOK_URL"))
+    return a
+
+
+IDENTITY_TEXT = {"official_name": 200, "domain": 120, "ticker": 16, "exchange": 32, "cik": 10}
+
+
+@app.post("/admin/companies/{company_id}/identity")
+async def admin_company_identity(company_id: int, request: Request, db: Session = Depends(get_db),
+                                 current_admin: str = Depends(get_current_admin)):
+    """Pin a corrected identity (reused by every later run, never overwritten by resolution),
+    or clear it so the next run resolves the company again."""
+    company = db.get(Company, company_id)
+    if not company:
+        raise HTTPException(404, "Company not found")
+    form = await request.form()
+    action = form.get("action", "pin")
+    if action == "clear":
+        company.identity, company.identity_status, company.identity_resolved_at = None, None, None
+        msg = "Identity cleared: the next run resolves this company again."
+    else:
+        ident = dict(company.identity or {})
+        for key, cap in IDENTITY_TEXT.items():
+            val = (form.get(key) or "").strip()[:cap]
+            ident[key] = val or None
+        if not ident.get("official_name"):
+            flash(request, "Official name is required to pin an identity.", "error")
+            return RedirectResponse("/admin#companies", status_code=303)
+        if ident.get("domain"):
+            ident["domain"] = ident["domain"].lower().removeprefix("https://").removeprefix("http://") \
+                .removeprefix("www.").split("/")[0]
+        if ident.get("ticker"):
+            ident["ticker"] = ident["ticker"].upper()
+        if ident.get("cik"):
+            if not ident["cik"].isdigit():
+                flash(request, "CIK must be digits.", "error")
+                return RedirectResponse("/admin#companies", status_code=303)
+            ident["cik"] = f"{int(ident['cik']):010d}"
+        pub = form.get("is_public")
+        ident["is_public"] = True if pub == "1" else (False if pub == "0" else None)
+        ident["sec_filer"] = bool(ident.get("cik"))
+        ident["confidence"] = 1.0
+        ident["identity_check"] = {"status": "pinned", "note": f"pinned by {current_admin}", "consistent": True}
+        company.identity, company.identity_status = ident, "pinned"
+        company.identity_resolved_at = datetime.now(UTC)
+        for attr in ("official_name", "ticker", "exchange", "cik", "is_public"):
+            setattr(company, attr, ident.get(attr))
+        if ident.get("domain"):
+            company.domain = ident["domain"]
+        msg = f"Identity pinned for {ident['official_name']}; later runs reuse it."
+    db.add(IngestLog(company_id=company.id, action="identity_" + ("cleared" if action == "clear" else "pinned"),
+                     admin_id=current_admin, details={"identity": company.identity}))
+    db.commit()
+    flash(request, msg)
+    return RedirectResponse("/admin#companies", status_code=303)
+
+
 @app.get("/admin")
 def admin_dashboard(request: Request, db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
     pending = db.query(Suggestion).filter(Suggestion.status == "pending").order_by(Suggestion.id).all()
@@ -738,7 +826,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db), current_adm
         "admin.html",
         {"request": request, "pending": pending, "admin": current_admin, "version": __version__,
          "companies": runs_svc.admin_companies(db), "logs": logs, "high_attempt": high_attempt,
-         "runs": runs_svc.admin_runs(db, limit=10), **pop_flash(request)}
+         "runs": runs_svc.admin_runs(db, limit=10), "alerts": _admin_alerts(db), **pop_flash(request)}
     )
 
 
@@ -756,7 +844,7 @@ def admin_runs_list(request: Request, company_id: str = None, status: str = None
          "company_id": cid, "status": status, "statuses": runs_svc.RUN_FILTERS,
          "companies": db.query(Company).order_by(Company.canonical_name).all(),
          "qs": urlencode(filters), "self_url": "/admin/runs?" + urlencode({**filters, "page": data["page"]}),
-         **pop_flash(request)},
+         "alerts": _admin_alerts(db), **pop_flash(request)},
     )
 
 
@@ -769,7 +857,7 @@ def admin_run_detail(run_id: int, request: Request, db: Session = Depends(get_db
     return templates.TemplateResponse(
         "admin_run.html",
         {"request": request, "admin": current_admin, "version": __version__, "d": runs_svc.admin_run_detail(db, run),
-         "meth": meth, **pop_flash(request)},
+         "meth": meth, "alerts": _admin_alerts(db), **pop_flash(request)},
     )
 
 
@@ -815,6 +903,16 @@ async def rerun_judgment(
     run, created = runs_svc.enqueue_run(db, company_id, trigger="rerun", triggered_by=approver)
     body = {"company_id": company_id, "canonical_name": company.canonical_name, "rerun_by": approver,
             "run_id": run.id, "run_url": f"/internal/runs/{run.id}"}
+    if not created and run.status == "queued" and run.next_attempt_at is not None:
+        # an automatic retry is waiting: run it now (it resumes from its checkpoint)
+        run.next_attempt_at = None
+        db.add(IngestLog(company_id=company_id, action="retry_now", admin_id=approver, details={"run_id": run.id}))
+        db.commit()
+        worker.wake()
+        if wants_html(request):
+            flash(request, f"Run #{run.id} had an automatic retry scheduled; it will resume now.")
+            return RedirectResponse(f"/admin/runs/{run.id}", status_code=303)
+        return JSONResponse(status_code=202, content={**body, "status": "retry_now"})
     if not created:
         if wants_html(request):
             flash(request, f"{company.official_name or company.canonical_name} already has run #{run.id} "

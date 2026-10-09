@@ -83,6 +83,12 @@
     {% if run and not ranked %}
     <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Not ranked: {{ (run.summary or {}).get('not_ranked_reason') or 'insufficient data' }}.</strong> We publish what was verified, but an entity needs at least {{ '%.0f'|format(cfg_cov * 100) if cfg_cov is defined else '60' }}% of the weight scored — mostly from measured figures — before it is ranked. Missing data is never filled with a default.</span></div>
     {% endif %}
+    {% if run and (run.summary or {}).get('energy_undisclosed') and ranked %}
+    <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Energy undisclosed.</strong> No verified energy-consumption figure was found in the sources we read, so this entity is ranked on the remaining 70% of the weight ({{ '%.0f'|format(((run.summary or {}).get('adjusted_coverage') or 0) * 100) }}% of it scored) with confidence reduced. <a href="/methodology#coverage">How coverage works</a>.</span></div>
+    {% endif %}
+    {% if run and run.degraded %}
+    <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>Reduced run.</strong> Part of this measurement completed in reduced form ({% for d in run.degraded %}{{ d.split(':')[0] }}{{ ', ' if not loop.last }}{% endfor %}); what was verified is shown and nothing was filled in.</span></div>
+    {% endif %}
     {% if v.last_failed %}
     <div class="notice" role="note"><span aria-hidden="true">◌</span><span><strong>A newer measurement attempt did not complete</strong>{% if v.last_failed.finished_at %} ({{ v.last_failed.finished_at|pt_date }}){% endif %}. {{ 'The figures below are from the last successful run.' if run else 'Nothing has been published for this entity yet.' }}</span></div>
     {% endif %}
@@ -157,7 +163,7 @@
                 {% for f in v.figures %}
                 <tr>
                     <td data-label="Metric">{{ f.label }}</td>
-                    <td data-label="Value" class="mono num">{{ '{:,.0f}'.format(f.value) if f.value == (f.value|round(0)) else '{:,.2f}'.format(f.value) }} {{ f.unit|replace('_', ' ') }}</td>
+                    <td data-label="Value" class="mono num">{{ f.value|num }} {{ f.unit|replace('_', ' ') }}</td>
                     <td data-label="Period" class="mono dim">{{ f.period or '—' }}</td>
                     <td data-label="Source">{% if f.evidence and f.evidence.url %}<a href="{{ f.evidence.url }}" target="_blank" rel="noopener nofollow" class="mono" style="font-size:.76rem">{{ f.evidence.domain }} ↗</a>{% if f.evidence.kind == 'filing' %} <span class="dim mono" style="font-size:.7rem">SEC XBRL</span>{% endif %}{% else %}—{% endif %}</td>
                 </tr>
@@ -174,8 +180,13 @@
         <ol class="srclist">
             {% for s in v.sources %}
             <li>
+                {%- if s.archive_url %}
+                <a href="{{ s.archive_url }}" target="_blank" rel="noopener nofollow">{{ (s.title or ki.pretty(s.url))|truncate(110) }}</a>
+                <span class="dim mono">archived copy (Wayback Machine, {{ (s.archive_timestamp or '')[:4] }}-{{ (s.archive_timestamp or '')[4:6] }}-{{ (s.archive_timestamp or '')[6:8] }}) of {{ ki.pretty(s.url)|truncate(60) }} — the original refused our fetcher · fetched {{ s.fetched_at|pt_date }}{% if s.is_primary %} · primary{% endif %}</span>
+                {%- else %}
                 <a href="{{ s.final_url or s.url }}" target="_blank" rel="noopener nofollow">{{ (s.title or ki.pretty(s.final_url or s.url))|truncate(110) }}</a>
                 <span class="dim mono">{{ ki.pretty(s.final_url or s.url)|truncate(60) }} · fetched {{ s.fetched_at|pt_date }}{% if s.sha256 %} · sha256 {{ s.sha256[:12] }}{% endif %}{% if s.is_primary %} · primary{% endif %}</span>
+                {%- endif %}
             </li>
             {% endfor %}
         </ol>

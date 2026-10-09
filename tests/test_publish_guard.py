@@ -100,7 +100,10 @@ def test_insufficient_run_never_replaces_legacy_v0(client, admin_client, db, use
     # admins see it, labelled
     lst = admin_client.get("/admin/runs?status=withheld").text
     assert f"/admin/runs/{thin.id}" in lst and "withheld" in lst
-    assert f"/admin/runs/{thin.id}" not in admin_client.get("/admin/runs?status=failed").text
+    failed = admin_client.get("/admin/runs?status=failed").text
+    assert 'class="alerts"' in failed and "Withheld · 1" in failed       # the alert banner lists it...
+    table = re.sub(r'<section class="alerts".*?</section>', "", failed, flags=re.DOTALL)
+    assert f"/admin/runs/{thin.id}" not in table                         # ...but the failed filter doesn't
     det = admin_client.get(f"/admin/runs/{thin.id}").text
     assert "withheld" in det and "kept the legacy v0 scores public" in det
 

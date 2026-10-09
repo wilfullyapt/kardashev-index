@@ -661,3 +661,18 @@ td.actions { text-align: right; white-space: nowrap; }
 /* v2.2 — withheld (insufficient) runs note */
 .history__withheld { margin-top: .75rem; max-width: 46rem; display: flex; gap: .5rem; align-items: baseline; }
 .runstat--withheld { color: var(--dim); border: 1px dashed currentColor; padding: 0 .3rem; border-radius: 3px; font-size: .85em; }
+
+/* reliability: alert banner, identity pin, degraded runs */
+.alerts { margin: 0 0 1.25rem; display: grid; gap: .45rem; }
+.alerts__row { display: flex; flex-wrap: wrap; gap: .35rem .6rem; align-items: baseline; padding: .55rem .8rem; border: 1px solid var(--line-3); border-left: 3px solid var(--plasma); font-size: .82rem; }
+.alerts__row--failed, .alerts__row--stuck { border-left-color: var(--danger, #d9654b); }
+.alerts__row--degraded, .alerts__row--withheld { border-left-color: var(--gold); }
+.alerts__tag { font-family: var(--mono, monospace); font-size: .7rem; letter-spacing: .06em; text-transform: uppercase; color: var(--gold); margin-right: .2rem; }
+.alerts__item { font-family: var(--mono, monospace); font-size: .76rem; }
+.identity { margin-top: .35rem; }
+.identity summary { cursor: pointer; color: var(--dim); }
+.identity__form { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: .4rem .6rem; margin-top: .45rem; font-size: .76rem; }
+.identity__form label { display: grid; gap: .15rem; color: var(--dim); }
+.identity__form input, .identity__form select { font: inherit; padding: .25rem .4rem; background: transparent; color: var(--bone); border: 1px solid var(--line-3); }
+.runstat--degraded { color: var(--gold); border: 1px dashed currentColor; padding: 0 .3rem; border-radius: 3px; font-size: .85em; }
+.box--degraded { border: 1px dashed var(--gold); padding: .7rem .9rem; margin: .8rem 0; font-size: .85rem; }
