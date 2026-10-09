@@ -5,4 +5,4 @@ The git tag for a release is "v" + __version__ (e.g. v0.3.0). pyproject.toml rea
 from here, /health reports it and every page footer shows it.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

@@ -152,6 +152,12 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
   removed (`semantics.strip_future_as_current`).
 - **Quotes** are verified against the full fetched text (stored up to `SNAPSHOT_MAX_CHARS`), and a quote
   attributed to the wrong fetched source is matched against the others.
+- **Source preference** (prompts-v2.4, `app/pipeline/sources.py`): research asks for compact data
+  equivalents first (ESG data tables/databooks, KPI or performance-data appendices, GRI/SASB/TCFD
+  indexes, CDP responses, CSV/XLSX, HTML data pages) and lists them before a full impact report, which
+  can be a 100+ MB PDF. Candidates are then re-ordered in code (stable): research picks before bare
+  citations, compact energy data sources boosted, bulky full-report PDFs slightly lowered, so the
+  compact ones survive the `JUDGE_MAX_SOURCES` cut and are fetched and excerpted first.
 - **EDGAR**: XBRL company facts supply revenue and capex (`source_url` = the companyfacts API URL,
   quote carries the accession number). Every sec.gov request sends `SEC_EDGAR_USER_AGENT` and is
   rate-limited to 8 req/s. Without the user agent the stage is skipped and the admin pages show a
