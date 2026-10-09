@@ -1,8 +1,10 @@
-version: "3.9"
-
+# Local stack: Postgres + the app, mirroring production (Render) as closely as practical.
+#   cp .env.example .env   # fill in ADMIN_*, SECRET_KEY, optionally XAI_API_KEY / SEC_EDGAR_USER_AGENT
+#   docker compose up --build   ->  http://localhost:8088
+# Judgment runs call the paid xAI API only if XAI_API_KEY is set.
 services:
   db:
-    image: postgres:16-alpine
+    image: postgres:17-alpine
     environment:
       POSTGRES_USER: kardashev
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-kardashev_test}
@@ -23,11 +25,16 @@ services:
     environment:
       DATABASE_URL: postgresql://kardashev:${POSTGRES_PASSWORD:-kardashev_test}@db:5432/kardashev_index
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@example.com}
-      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}   # generate with: python -c "from passlib.hash import bcrypt; print(bcrypt.hash('yourpass'))"
+      ADMIN_PASSWORD_HASH: ${ADMIN_PASSWORD_HASH:-}
       SECRET_KEY: ${SECRET_KEY:-dev-secret-change-me}
-      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      HERMES_API_KEY: ${HERMES_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      SEC_EDGAR_USER_AGENT: ${SEC_EDGAR_USER_AGENT:-}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+      WORKER_ENABLED: ${WORKER_ENABLED:-1}
+      SWEEP_ENABLED: ${SWEEP_ENABLED:-0}   # no automatic paid re-runs locally unless enabled
     ports:
-      - "8088:8000"   # change host port if needed
+      - "8088:8000"
     restart: unless-stopped
 
 volumes:
