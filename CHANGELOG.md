@@ -10,6 +10,25 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.9.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: fetch and figure-verification change. Component version: **pipeline-v2.6** (this PR follows
+#17, which takes 0.7.0 / pipeline-v2.5, and #18, which takes 0.8.0 / prompts-v2.4; prompts, weights
+and rubrics unchanged here). Bug 1, part 3 of the scoring-bug diagnosis.
+
+### Added
+- PDFs larger than `FETCH_MAX_BYTES` (30 MB) are read instead of rejected: only the relevant pages
+  (outline hits, then the last 40% from the end backwards, pages with energy figures), over HTTP Range
+  requests when supported, otherwise streamed to a temporary file on disk. It runs in a separate child
+  process with a 256 MB address-space cap, CPU and wall-clock limits, page/byte/disk caps and one
+  large PDF at a time, so it cannot exhaust the web process's memory (`LARGE_PDF_*`, see
+  docs/API.md). Wayback copies of over-cap PDFs are read the same way.
+
+### Changed
+- An energy figure that is one of several unlabelled values under one unit heading (Tesla's key-metrics
+  page lists "Energy Consumption (kWh)" with three numbers whose row labels are icons) is rejected as
+  ambiguous with the values in the reason; it is never summed unless the source states a total.
+
 ## [0.6.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: metric-correctness change. Component versions: **pipeline-v2.3 → pipeline-v2.4**,

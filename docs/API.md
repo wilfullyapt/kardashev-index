@@ -150,6 +150,17 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
   energy or electricity consumption (same year ±1) is recorded but not scored, with a flag. Sentences
   in the synthesis or opinion rationales that describe planned or unscored capacity as operating are
   removed (`semantics.strip_future_as_current`).
+- **Large PDFs** (pipeline-v2.6): a PDF over `FETCH_MAX_BYTES` is no longer simply rejected. A
+  separate, resource-capped process reads only its relevant pages (outline hits, then the last 40% from
+  the end backwards, keeping pages with energy figures), over HTTP Range requests when the server
+  supports them, otherwise via a download streamed to a temporary file. The source's reason records
+  how it was read ("large PDF (182 MB, 210 pages) read via HTTP Range: 1 relevant pages kept…").
+  Limits (`LARGE_PDF_*`, below) protect the 512 MB web process; on failure the source stays rejected
+  with the reason appended.
+- **Unlabelled values** (pipeline-v2.6): an energy figure that is one of several bare numbers under a
+  single unit heading with no row labels (and no "total" in the quote) is rejected as ambiguous, with
+  the values listed in the reason; it is never summed. Values that line up with year columns
+  ("2024 2023 612,000 489,600") are treated as labelled.
 - **Quotes** are verified against the full fetched text (stored up to `SNAPSHOT_MAX_CHARS`), and a quote
   attributed to the wrong fetched source is matched against the others.
 - **EDGAR**: XBRL company facts supply revenue and capex (`source_url` = the companyfacts API URL,
@@ -218,6 +229,10 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
 | `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
+| `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
+| `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
+| `LARGE_PDF_RANGE_BUDGET_MB` / `LARGE_PDF_MAX_DOWNLOAD_MB` | `48` / `200` | bytes transferred via HTTP Range; largest streamed download (needs 2× free disk) |
+| `LARGE_PDF_SCAN_PAGES` / `LARGE_PDF_QUIET_PAGES` / `LARGE_PDF_KEEP_PAGES` / `LARGE_PDF_MAX_CHARS` / `LARGE_PDF_STREAM_MB` | `120` / `40` / `30` / `400000` / `16` | pages examined, stop after this many pages without a hit, pages kept, text kept, per-stream decompression cap |
 | `JUDGE_RESOLVE_MAX_TOKENS` / `JUDGE_RESEARCH_MAX_TOKENS` / `JUDGE_EXTRACT_MAX_TOKENS` / `JUDGE_JUDGE_MAX_TOKENS` | `8000` / `16000` / `16000` / `8000` | output token limits |
 | `JUDGE_RESERVE_USD` | `0.04` | budget kept for the judge when gathering stages hit the cap |
 | `IDENTITY_TTL_DAYS` / `IDENTITY_MIN_CONFIDENCE` | `90` / `0.75` | reuse of a saved auto identity |

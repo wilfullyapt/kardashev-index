@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from app.pipeline import largepdf as L
+from app.pipeline import semantics as S
 from app.pipeline.fetch import Assessment, FetchResult
 
 PUBLIC = lambda host, port: [(2, 1, 6, "", ("93.184.216.34", 0))]
@@ -287,3 +288,40 @@ def test_rate_limited_block_is_retried_once_then_download_error_is_reported(tmp_
     assert not res.ok and "HTTP 429" in res.reason
     assert calls["n"] == 4          # probe, block, one retry, download attempt
     assert list(tmp_path.iterdir()) == []
+
+
+# ------------------------------------------------------------- unlabelled multi-value rows
+
+
+
+TESLA_P195 = ("Uptime of Tesla Supercharger Sites* 99.95% Energy Consumption (kWh) 1,673,681,511 "
+              "681,364,318 1,477,221,711 Impact Report 2024 Key Metrics")
+
+
+def _check(quote, ctx=None, key="energy_consumption"):
+    return S.check_figure(key, quote=quote, period="2024", is_primary=True, current_year=2026,
+                          row_context=ctx if ctx is not None else quote)
+
+
+@pytest.mark.parametrize("quote", ["Energy Consumption (kWh) 1,673,681,511",
+                                   "Energy Consumption (kWh) 1,673,681,511 681,364,318 1,477,221,711"])
+def test_value_among_unlabelled_values_is_ambiguous(quote):
+    v = _check(quote, TESLA_P195)
+    assert not v.ok and v.reason.startswith("ambiguous: 3 unlabelled values")
+    assert "1,477,221,711" in v.reason
+
+
+@pytest.mark.parametrize("quote,ctx", [
+    ("Total energy consumption (kWh) 3,832,267,540", None),                       # source states a total
+    ("Energy consumption (MWh) 2024 2023 612,000 489,600", None),                 # year columns label them
+    ("Energy consumption (GJ) FY2024 FY2023 13,796,163 9,285,005", None),
+    ("Energy consumption (MWh) 2024 612,000", "Energy consumption (MWh) 2024 612,000 Water (m3) 2024 5,000"),
+    ("In fiscal year 2024, total energy consumption across our operations was 612,000 MWh.", None),
+])
+def test_labelled_or_total_figures_still_pass(quote, ctx):
+    assert _check(quote, ctx).ok
+
+
+def test_unlabelled_rule_only_for_scored_energy():
+    v = _check("Energy storage deployed (MWh) 31,400 14,700", key="energy_storage_deployed")
+    assert v.ok
