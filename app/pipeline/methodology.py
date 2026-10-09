@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-PIPELINE_VERSION = "pipeline-v2.3"
+PIPELINE_VERSION = "pipeline-v2.4"
 WEIGHTS_VERSION = "weights-v1"
 RUBRIC_VERSION = "rubrics-v1"
 
@@ -32,7 +32,9 @@ CATEGORIES: list[dict] = [
         "key": "compute_capacity", "family": MEASURED, "weight": 0.20,
         "label": "Compute capacity", "short": "Compute", "kicker": "Watts of thought",
         "what": "Data-center capacity the company reports operating (IT or facility power, MW). "
-                "Announced or under-construction capacity is shown but not scored.",
+                "Announced, under-construction or under-development capacity (including a figure whose "
+                "footnote or table row says so) is shown but not scored, and so is operating capacity that "
+                "contradicts the company's own reported energy use (over 10x it even at 20% utilisation).",
         "inputs": "Reported operating data-center capacity in MW or GW with a verbatim quote.",
         "formula": "Score = clamp(2.5 × log₁₀(MW), 0, 10).",
         "anchors": [("1 MW", 0), ("10 MW", 2.5), ("100 MW", 5), ("1 GW", 7.5), ("10 GW", 10)],
