@@ -42,8 +42,20 @@ BROWSER_HEADERS = {
 MAX_REDIRECTS = 5
 RETRY_STATUSES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 ARCHIVE_STATUSES = {401, 403, 404, 410, 451}
-WAYBACK_API = "https://web.archive.org/wayback/available?url={url}"
+# CDX lists captures; filtered to HTTP 200 so an archived block page (e.g. Akamai's 403) is never picked.
+WAYBACK_CDX = ("https://web.archive.org/cdx/search/cdx?url={url}&output=json"
+               "&fl=timestamp,original,mimetype,statuscode,length&filter=statuscode:200&limit=-{n}")
+# Fallback only: web.archive.org/wayback/available answers 404, and this host often answers empty.
+WAYBACK_API = "https://archive.org/wayback/available?url={url}"
 WAYBACK_RAW = "https://web.archive.org/web/{ts}id_/{url}"
+WAYBACK_CAPTURES = 3            # newest 200 captures tried per URL
+WAYBACK_MAX_REQUESTS = 16       # per run, all archive.org requests together
+# Bot walls and archive outages. Matched on the title and the start of the text of a candidate copy.
+BLOCK_PAGE_RE = re.compile(
+    r"access denied|you don.t have permission to access|errors\.edgesuite\.net|attention required|"
+    r"just a moment\.\.\.|checking your browser|cf-browser-verification|request rejected|"
+    r"pardon our interruption|are you a robot|captcha|temporarily offline|too many requests",
+    re.IGNORECASE)
 PDF_MAX_PAGES = 400
 PDF_MAX_CHARS = 3_000_000
 _PDF_SLOTS = threading.BoundedSemaphore(2)    # bound memory: at most two PDFs parsed at once
@@ -336,19 +348,157 @@ class SourceChecker:
         return Assessment("ok", None, snap)
 
 
+def is_block_page(title: str, text: str) -> bool:
+    """A bot wall, CDN error or archive outage page rather than the document."""
+    return bool(BLOCK_PAGE_RE.search(f"{title} {text[:600]}")) and len(text) < 5000
+
+
+@dataclass
+class ArchiveAttempt:
+    """What the Wayback fallback did for one source; stored on Source.archive_attempt."""
+    lookup: str = ""                       # cdx | availability | none
+    outcome: str = "not_found"             # used | not_found | unusable | rate_limited | unavailable | capped
+    note: str = ""
+    used: str | None = None                # timestamp of the copy used
+    tried: list = field(default_factory=list)   # [{"ts":..., "result":...}]
+
+    def as_dict(self) -> dict:
+        return {"lookup": self.lookup, "outcome": self.outcome, "note": self.note, "used": self.used,
+                "tried": self.tried}
+
+
+def _why(tripped: str | None, res: FetchResult) -> str | None:
+    if tripped == "rate_limited":
+        return "HTTP 429 (rate-limited)"
+    if tripped:
+        return f"unavailable ({'outage page' if res.status == 200 else res.error or f'HTTP {res.status}'})"
+    return f"HTTP {res.status}" if res.status != 200 else None
+
+
+class Wayback:
+    """Wayback Machine fallback for one run: CDX lookup of the newest HTTP-200 captures (availability
+    API only when CDX itself fails), block-page rejection, a per-run request cap, at most two archive
+    requests at a time, and a circuit breaker once archive.org rate-limits us or is offline."""
+
+    def __init__(self, fetcher: Fetcher, *, max_requests: int = WAYBACK_MAX_REQUESTS,
+                 captures: int = WAYBACK_CAPTURES):
+        self.fetcher = fetcher
+        self.max_requests = max_requests
+        self.captures = captures
+        self.requests = 0
+        self.down: str | None = None        # "rate_limited" | "unavailable" once tripped
+        self._lock = threading.Lock()
+        self._slots = threading.BoundedSemaphore(2)
+
+    def _get(self, url: str, **kw) -> FetchResult | None:
+        with self._lock:
+            if self.down or self.requests >= self.max_requests:
+                return None
+            self.requests += 1
+        with self._slots:
+            return self.fetcher.get(url, **kw)
+
+    def _trip(self, res: FetchResult) -> str | None:
+        """Mark archive.org down for the rest of the run on 429/5xx or an outage page."""
+        why = None
+        if res.status == 429:
+            why = "rate_limited"
+        elif (res.status is None or res.status >= 500
+              or (res.status == 200 and b"internet archive: temporarily offline" in res.body[:4000].lower())):
+            why = "unavailable"
+        if why:
+            with self._lock:
+                self.down = self.down or why
+        return why
+
+    def _stopped(self, att: ArchiveAttempt) -> ArchiveAttempt:
+        att.outcome = self.down or "capped"
+        att.note = (f"Wayback skipped: archive.org {'rate-limited us' if self.down == 'rate_limited' else 'unavailable'}"
+                    if self.down else f"Wayback skipped: per-run cap of {self.max_requests} archive requests reached")
+        return att
+
+    def lookup(self, url: str, att: ArchiveAttempt) -> list[str] | None:
+        """Newest-first timestamps of HTTP-200 captures; None when no lookup could be made."""
+        res = self._get(WAYBACK_CDX.format(url=quote(url, safe=""), n=self.captures), max_bytes=200_000)
+        if res is None:
+            return None
+        att.lookup = "cdx"
+        cdx_err = _why(self._trip(res), res)
+        if not cdx_err:
+            try:
+                rows = json.loads(res.body or b"[]")
+                if not isinstance(rows, list):
+                    raise TypeError("not a list")
+                stamps = [str(r[0]) for r in rows[1:] if isinstance(r, list) and r and str(r[0]).isdigit()]
+                return list(reversed(stamps))
+            except (ValueError, IndexError, TypeError):
+                cdx_err = "unreadable CDX answer"
+        att.note = f"CDX {cdx_err}"
+        if self.down:
+            return None
+        res = self._get(WAYBACK_API.format(url=quote(url, safe="")), max_bytes=200_000)
+        if res is None:
+            return None
+        att.lookup = "availability"
+        api_err = _why(self._trip(res), res)
+        if api_err:
+            att.note = f"CDX {cdx_err}; availability API {api_err}"
+            return None
+        try:
+            closest = (json.loads(res.body).get("archived_snapshots") or {}).get("closest") or {}
+        except (ValueError, AttributeError):
+            att.note = f"CDX {cdx_err}; availability API answer unreadable"
+            return None
+        ts = str(closest.get("timestamp") or "")
+        if closest.get("available") and str(closest.get("status", "200")) == "200" and ts.isdigit():
+            return [ts]
+        return []
+
+    def fetch(self, url: str, accept) -> tuple[FetchResult | None, Assessment | None, ArchiveAttempt]:
+        """Try the newest good capture(s) of ``url``. ``accept(result) -> Assessment`` judges a copy
+        (the caller's checks, e.g. assess + large-PDF rescue). Returns (copy, assessment, attempt);
+        copy is None unless an ``ok`` copy was found."""
+        att = ArchiveAttempt()
+        stamps = self.lookup(url, att)
+        if stamps is None:
+            if not att.note:
+                return None, None, self._stopped(att)
+            att.outcome = self.down or "unavailable"
+            att.note = f"Wayback lookup failed ({att.note})"
+            return None, None, att
+        if not stamps:
+            att.outcome, att.note = "not_found", "Wayback has no HTTP-200 capture"
+            return None, None, att
+        for ts in stamps:
+            res = self._get(WAYBACK_RAW.format(ts=ts, url=url))
+            if res is None:
+                break
+            if self._trip(res):
+                att.tried.append({"ts": ts, "result": self.down})
+                break
+            res.archived_from, res.archive_timestamp = url, ts
+            a = accept(res)
+            snap = a.snapshot
+            if snap is not None and is_block_page(snap.title, snap.text):
+                att.tried.append({"ts": ts, "result": "block page"})
+                continue
+            if a.status == "ok":
+                att.tried.append({"ts": ts, "result": "ok"})
+                att.outcome, att.used = "used", ts
+                att.note = f"using the Wayback Machine copy of {ts[:4]}-{ts[4:6]}-{ts[6:8]}"
+                return res, a, att
+            att.tried.append({"ts": ts, "result": f"{a.status}: {a.reason or ''}"[:120]})
+        if att.tried:
+            att.outcome = "unusable" if not self.down else self.down
+            att.note = "Wayback copies unusable: " + "; ".join(f"{t['ts']} {t['result']}" for t in att.tried)
+        else:
+            self._stopped(att)
+        return None, None, att
+
+
 def wayback_fetch(fetcher: Fetcher, url: str) -> FetchResult | None:
-    """The closest Wayback Machine snapshot of ``url`` (raw, without the archive toolbar), or None."""
-    api = fetcher.get(WAYBACK_API.format(url=quote(url, safe="")), max_bytes=200_000)
-    if api.status != 200 or not api.body:
-        return None
-    try:
-        closest = (json.loads(api.body).get("archived_snapshots") or {}).get("closest") or {}
-    except (ValueError, AttributeError):
-        return None
-    ts = str(closest.get("timestamp") or "")
-    if not closest.get("available") or str(closest.get("status", "200")) != "200" or not ts.isdigit():
-        return None
-    res = fetcher.get(WAYBACK_RAW.format(ts=ts, url=url))
-    res.archived_from = url
-    res.archive_timestamp = ts
+    """The newest usable Wayback copy of ``url`` (raw, without the archive toolbar), or None.
+    Kept for scripts; the pipeline uses ``Wayback.fetch`` so every attempt is recorded."""
+    checker = SourceChecker(fetcher)
+    res, _a, _att = Wayback(fetcher).fetch(url, checker.assess)
     return res

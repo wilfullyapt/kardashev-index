@@ -39,6 +39,8 @@ class Settings:
     fetch_retries: int = field(default_factory=lambda: _i("FETCH_RETRIES", 2))
     # Wayback Machine fallback for sources that answer 401/403/404/410/451 (labelled "archived copy").
     wayback_enabled: bool = field(default_factory=lambda: _b("FETCH_WAYBACK", True))
+    # Cap on archive.org requests (CDX lookups + copies) per run; the fallback stops early on 429/outage.
+    wayback_max_requests: int = field(default_factory=lambda: _i("FETCH_WAYBACK_MAX_REQUESTS", 16))
     # Stored source text. Large enough that a resumed run re-verifies quotes against the full document.
     snapshot_max_chars: int = field(default_factory=lambda: _i("SNAPSHOT_MAX_CHARS", 1_000_000))
     extract_max_chars: int = field(default_factory=lambda: _i("EXTRACT_MAX_CHARS", 64_000))

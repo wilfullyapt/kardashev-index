@@ -36,7 +36,7 @@ from . import semantics as sem
 from .aggregate import aggregate
 from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
-from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, wayback_fetch
+from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, Wayback
 from .largepdf import read_large_pdf, rescue_oversized
 from .llm import LLM, LLMError, LLMResult, extract_json
 from .sources import rank_candidates
@@ -466,31 +466,32 @@ def stage_fetch(ctx: RunContext):
             return
         checker = SourceChecker(ctx.deps.fetcher, **({"probe_token": ctx.deps.probe_token}
                                                      if ctx.deps.probe_token else {}))
-        wayback = ctx.s.wayback_enabled
+        wb = Wayback(ctx.deps.fetcher, max_requests=ctx.s.wayback_max_requests) if ctx.s.wayback_enabled else None
         big_pdf = ctx.deps.large_pdf or (read_large_pdf if isinstance(ctx.deps.fetcher, HttpFetcher) else None)
+
+        def accept(url, res):
+            a = checker.assess(res)
+            if big_pdf is not None:
+                a = rescue_oversized(url, res, a, big_pdf)   # over-cap PDF: relevant pages only
+            return a
 
         def work(c):
             res = ctx.deps.fetcher.get(c["url"])
-            a = checker.assess(res)
-            if big_pdf is not None:
-                a = rescue_oversized(c["url"], res, a, big_pdf)   # over-cap PDF: relevant pages only
-            if a.status != "ok" and wayback and res.status in ARCHIVE_STATUSES:
-                arch = wayback_fetch(ctx.deps.fetcher, c["url"])
+            a = accept(c["url"], res)
+            if a.status != "ok" and wb is not None and res.status in ARCHIVE_STATUSES:
+                arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
                 if arch is not None:
-                    aa = checker.assess(arch)
-                    if big_pdf is not None:
-                        aa = rescue_oversized(c["url"], arch, aa, big_pdf)
-                    if aa.status == "ok":
-                        return c, arch, aa, res
-            return c, res, a, None
+                    return c, arch, aa, res, att
+                return c, res, a, None, att
+            return c, res, a, None, None
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             results = list(pool.map(work, ctx.candidates))
         counts: dict[str, int] = {}
         domain = ctx.entity.get("domain")
         seen_sha: dict[str, int] = {}
-        archived = []
-        for c, res, a, original in results:
+        archived, outcomes = [], {}
+        for c, res, a, original, att in results:
             snap = a.snapshot
             if a.status == "ok" and snap and snap.sha256 in seen_sha:
                 a = type(a)("duplicate", f"same content as source #{seen_sha[snap.sha256]}", snap)
@@ -503,6 +504,11 @@ def stage_fetch(ctx: RunContext):
                          text=snap.text[: ctx.s.snapshot_max_chars] if snap and a.status == "ok" else None,
                          status=a.status, reject_reason=a.reason,
                          is_primary=host_matches(c["url"] if res.archived_from else (res.final_url or c["url"]), domain))
+            if att is not None:                  # every archive attempt is recorded, used or not
+                src.archive_attempt = att.as_dict()
+                outcomes[att.outcome] = outcomes.get(att.outcome, 0) + 1
+                if not res.archived_from:
+                    src.reject_reason = f"{a.reason or a.status}; {att.note}"[:500]
             if res.archived_from:
                 src.archive_url = res.final_url
                 src.archive_timestamp = res.archive_timestamp
@@ -517,6 +523,9 @@ def stage_fetch(ctx: RunContext):
         st.detail["status_counts"] = counts
         if archived:
             st.detail["archived"] = archived
+        if outcomes:
+            st.detail["wayback"] = {"outcomes": outcomes, "requests": wb.requests, "cap": wb.max_requests,
+                                    "stopped": wb.down}
 
 
 def _locate_any(ctx: RunContext, quote: str, sid: int) -> tuple[int, ev.Match | None, bool]:

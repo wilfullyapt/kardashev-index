@@ -222,6 +222,7 @@ class Source(Base):
     is_primary = Column(Boolean)
     archive_url = Column(Text)                 # Wayback Machine copy used instead of the original (0005)
     archive_timestamp = Column(String(14))
+    archive_attempt = Column(JSON)             # what the Wayback fallback did, used or not (0007)
 
 
 class Evidence(Base):
