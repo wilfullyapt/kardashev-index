@@ -3,7 +3,7 @@
 How changes reach production, how versions are chosen and how to roll back.
 
 ## Branching: trunk-based
-- `main` is the only long-lived branch. Render auto-deploys every commit on `main` to
+- `main` is the only long-lived branch. Render auto-deploys every `main` commit whose CI passes to
   https://kardashev-index.onrender.com.
 - All work goes through a short-lived branch (`feat/…`, `fix/…`, `chore/…`, `docs/…`) and a pull
   request. Direct pushes to `main` are blocked by the `main` ruleset.
@@ -14,6 +14,29 @@ How changes reach production, how versions are chosen and how to roll back.
 - PRs that change nothing the running app uses (docs, CI, dev tooling) may put `[skip render]` in
   the squash title. Render then skips the deploy.
 - Delete the branch after merging.
+
+## Deploys (Render)
+The web service is managed by the Blueprint in `render.yaml`. The deploy flow is:
+
+1. A PR merges (squash) into `main`. GitHub Actions runs `lint`, `test` and `test-postgres` on the
+   new commit. `version-check` is PR-only and shows as *skipped*, which Render counts as passed.
+2. **`autoDeployTrigger: checksPass`**: Render starts the deploy only after all of the commit's
+   checks finish successfully. If any check fails, nothing deploys. Fix it in a new PR.
+   - If a commit has **zero** checks, Render does not deploy it. Don't use `[skip ci]` on `main`,
+     because it would block the deploy. To skip a deploy deliberately, use `[skip render]`.
+3. Build: `pip install --only-binary :all: -r requirements.txt && alembic upgrade head` on Python
+   3.12.15 (pinned by `PYTHON_VERSION` and `.python-version`).
+4. **`healthCheckPath: /health`**: traffic switches to the new instance only after `/health`
+   answers 2xx. If it doesn't within 15 minutes, Render cancels the deploy and keeps the old one.
+   On a running instance, 60 s of failed checks makes Render restart it.
+   - `/health` is **200** whenever the web process can query the database, and **503** when it
+     can't. Worker state (`worker.alive`, queue, retries, last run) is informational and never
+     changes the HTTP status. A stalled worker shows `"status": "degraded"` with a 200 response.
+5. Verify: `curl -s https://kardashev-index.onrender.com/health`. `code_version` must equal the
+   merge commit SHA, and `version` must equal `app/version.py`.
+
+Manual deploys (dashboard *Manual Deploy → Deploy latest commit*) still work and ignore checks.
+Avoid *Deploy a specific commit*: it turns auto-deploy off (see Rollback).
 
 ## Versioning: SemVer
 The app version lives in **one place**: `app/version.py` (`__version__ = "X.Y.Z"`, no leading `v`).
@@ -72,8 +95,10 @@ owner approval**:
 
 ## Rollback
 1. **Fastest:** in the Render dashboard, open the service → *Events*/*Deploys* and use **Rollback**
-   on the last good deploy. Render redeploys that build without touching `main`. If auto-deploy is
-   on, the next push to `main` deploys again, so fix forward promptly.
+   on the last good deploy. Render redeploys that build without touching `main`. The next
+   `main` commit that passes CI deploys again (auto-deploy is `checksPass`), so fix forward
+   promptly. Check under *Settings → Auto-Deploy* that auto-deploy is still "After CI Checks Pass"
+   afterwards.
 2. **Fix forward / revert:** open a PR that reverts the bad squash commit
    (`git revert <sha>`) and merge it through the normal checks.
 3. **Migrations are not undone automatically.** Expand/contract keeps old code working on the new

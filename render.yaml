@@ -1,11 +1,14 @@
 services:
   - type: web
     name: kardashev-index
-    env: python
+    runtime: python
     buildCommand: "pip install --only-binary :all: -r requirements.txt && alembic upgrade head"
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     # let the in-process worker checkpoint and re-queue its run on deploys (WORKER_DRAIN_S=45 < 60)
     maxShutdownDelaySeconds: 60
+    # Render probes this; a deploy goes live only once it answers 2xx. /health is 200 when the web
+    # process can query the database and 503 when it can't; worker state never fails it.
+    healthCheckPath: /health
     envVars:
       # Pin the runtime (Render's default for new services is 3.14). Must be a full X.Y.Z and must
       # match .python-version; the env var wins over the file. https://render.com/docs/python-version
@@ -31,7 +34,9 @@ services:
         sync: false
       - key: SECRET_KEY
         generateValue: true
-    autoDeploy: true
+    # Deploy only after the commit's GitHub checks pass (lint, test, test-postgres; version-check is
+    # PR-only and reports "skipped" on main, which Render counts as passed).
+    autoDeployTrigger: checksPass
 
 databases:
   - name: kardashev-index-db
