@@ -65,7 +65,7 @@
             <dt>Quotes</dt><dd class="mono">{{ d.evidence_verified }} verified / {{ d.evidence_total }} proposed</dd>
         </dl>
         <dl class="facts__g">
-            <dt>Index</dt><dd class="mono">{% if run.index_score is not none %}{{ '%.2f'|format(run.index_score) }} <span class="dim">(measured {{ '%.2f'|format(run.measured_score) if run.measured_score is not none else '—' }} · opinion {{ '%.2f'|format(run.judged_score) if run.judged_score is not none else '—' }})</span>{% else %}—{% endif %}</dd>
+            <dt>Index</dt><dd class="mono">{% if run.index_score is not none %}{{ '%.2f'|format(run.index_score) }} <span class="dim">(measured {{ '%.2f'|format(run.measured_score) if run.measured_score is not none else '—' }} · opinion {{ '%.2f'|format(run.judged_score) if run.judged_score is not none else '—' }})</span>{% if not run.is_ranked %} <span class="dim">raw · unranked, never shown publicly</span>{% endif %}{% else %}—{% endif %}</dd>
             <dt>K-equivalent</dt><dd class="mono">{{ '%.3f'|format(run.k_equivalent) if run.k_equivalent is not none else '—' }}</dd>
             <dt>Coverage / conf.</dt><dd class="mono">{{ '%.0f%%'|format(run.coverage * 100) if run.coverage is not none else '—' }} · {{ '%.0f%%'|format(run.confidence * 100) if run.confidence is not none else '—' }}</dd>
             <dt>Ranked / published</dt><dd class="mono">{{ run.ranked if run.ranked is not none else '—' }} · {{ run.published if run.published is not none else '—' }}</dd>

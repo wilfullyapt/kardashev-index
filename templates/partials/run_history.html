@@ -7,13 +7,13 @@
     <div class="history__head">
         <div>
             <h2 id="hist-h" class="h3 sec-h" style="margin:0">Run history</h2>
-            <p class="dim history__sub">Every published measurement, newest first. N is the run on the leaderboard now; failed attempts are not shown.</p>
+            <p class="dim history__sub">Every published measurement, newest first. N is the run on the leaderboard now; failed attempts are not shown. Unranked runs show no Index; Δ and the Index trend compare ranked runs only.</p>
         </div>
         {% if hist.spark_index and hist.spark_index.n > 1 %}
         <div class="sparks">
             {%- for sp, lbl, fmt in [(hist.spark_index, 'Index', '%.1f'), (hist.spark_k, 'K-equiv', '%.3f')] if sp %}
             <figure class="spark">
-                <svg viewBox="0 0 {{ sp.w }} {{ sp.h }}" width="{{ sp.w }}" height="{{ sp.h }}" role="img" aria-label="{{ lbl }} across {{ sp.n }} runs: from {{ fmt|format(sp.first) }} to {{ fmt|format(sp.latest) }}">
+                <svg viewBox="0 0 {{ sp.w }} {{ sp.h }}" width="{{ sp.w }}" height="{{ sp.h }}" role="img" aria-label="{{ lbl }} across {{ sp.n }} {{ 'ranked ' if lbl == 'Index' }}runs: from {{ fmt|format(sp.first) }} to {{ fmt|format(sp.latest) }}">
                     <polyline points="{{ sp.points }}" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
                     <circle cx="{{ '%.1f'|format(sp.last[0]) }}" cy="{{ '%.1f'|format(sp.last[1]) }}" r="2.6" class="spark__dot"/>
                 </svg>
@@ -33,8 +33,8 @@
         <tr class="{{ 'is-viewing' if viewing == e.label }}">
             <td data-label="Run"><span class="runlbl{{ ' runlbl--cur' if e.current }}">{{ e.label }}</span>{% if e.current %} <span class="dim">current</span>{% endif %}</td>
             <td data-label="Published" class="mono dim">{{ r.finished_at|pt_date }}</td>
-            <td data-label="Index" class="mono num">{% if r.index_score is not none %}{{ '%.1f'|format(r.index_score) }}{% if not r.is_ranked %} <span class="dim" title="not ranked: insufficient data">nr</span>{% endif %}{% else %}—{% endif %}</td>
-            <td data-label="Δ vs previous" class="mono num {{ 'up' if e.delta and e.delta >= 0.05 else 'down' if e.delta and e.delta <= -0.05 else 'dim' }}">{% if e.delta is none %}—{% elif e.delta|abs < 0.05 %}0.0{% else %}{{ '%+.1f'|format(e.delta) }}{% endif %}</td>
+            <td data-label="Index" class="mono num">{% if not e.ranked %}<span class="dim" title="Not ranked: {{ e.not_ranked_reason }}. No Index is shown for unranked runs.">Unranked</span>{% elif r.index_score is not none %}{{ '%.1f'|format(r.index_score) }}{% else %}—{% endif %}</td>
+            <td data-label="Δ vs previous ranked" title="{{ ('change vs ' ~ e.delta_vs) if e.delta_vs else 'compared only between ranked runs' }}" class="mono num {{ 'up' if e.delta and e.delta >= 0.05 else 'down' if e.delta and e.delta <= -0.05 else 'dim' }}">{% if e.delta is none %}—{% elif e.delta|abs < 0.05 %}0.0{% else %}{{ '%+.1f'|format(e.delta) }}{% endif %}</td>
             <td data-label="K-equiv" class="mono num">{{ '%.3f'|format(r.k_equivalent) if r.k_equivalent is not none else '—' }}</td>
             <td data-label="Method" class="mono dim history__ver">{{ r.pipeline_version }} · {{ r.weights_version }} · {{ r.rubric_version }}</td>
             <td class="history__go">{% if viewing == e.label %}<span class="dim mono">viewing</span>{% else %}<a class="btn btn--sm btn--ghost" href="{{ e.url }}">{{ 'Current' if e.current else 'View' }}<span class="sr-only"> run {{ e.label }}</span></a>{% endif %}</td>

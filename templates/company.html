@@ -51,15 +51,16 @@
                     <circle class="gauge__arc{{ ' gauge__arc--pending' if not ranked }}" cx="60" cy="60" r="50" stroke-dasharray="{{ '%.2f'|format(frac * circ) }} {{ circ }}"/>
                 </svg>
                 <div class="gauge__center">
-                    <span class="gauge__v">{{ '%.1f'|format(score) if ranked else '—' }}</span>
-                    <span class="gauge__k">Index / 10</span>
+                    {% if ranked %}<span class="gauge__v">{{ '%.1f'|format(score) }}</span>
+                    <span class="gauge__k">Index / 10</span>{% else %}<span class="gauge__v gauge__v--unranked">—</span>
+                    <span class="gauge__k">{{ 'Unranked' if run else 'Index / 10' }}</span>{% endif %}
                 </div>
             </div>
             {% if ranked %}
             {{ ki.band(score) }}
             <span class="conf" title="Weighted confidence: how much of the Index rests on solid, recent, primary data">Confidence {{ '%.0f'|format(run.confidence * 100) }}%{% if v.previous %} · <span class="{{ 'up' if v.previous.delta >= 0.05 else 'down' if v.previous.delta <= -0.05 else '' }}">{{ '%+.1f'|format(v.previous.delta) if v.previous.delta|abs >= 0.05 else '±0.0' }} vs {{ v.previous.label }}</span>{% endif %}</span>
             {% else %}
-            <span class="band band--pending">{{ 'Insufficient data' if run else ('Legacy · superseded' if hlabel == 'v0' else 'Awaiting measurement') }}</span>
+            <span class="band band--pending">{{ 'Unranked · insufficient data' if run else ('Legacy · superseded' if hlabel == 'v0' else 'Awaiting measurement') }}</span>
             {% endif %}
         </div>
     </section>

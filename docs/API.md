@@ -172,6 +172,12 @@ dossier URL. Migration **0004** replays this rule over existing runs (data-only,
   (0.40) and `confidence` (0–1; shown as 0–100%) is > `RANK_MIN_CONFIDENCE` (0.20). The gate is also
   recomputed at display time for stored runs (`app/eligibility.py`); `ranked` in API responses is that
   effective value and `ranked_at_run` is the verdict stored when the run finished.
+- **Unranked index** (0.5.1): every run stores `index_score` (the weighted mean of whatever was
+  scored), but for an unranked run it is a raw number over too little data and is not comparable.
+  Public pages never show it: run history and the header read "Unranked", deltas compare ranked runs
+  only, and the Index sparkline plots ranked runs only. The Hermes JSON endpoints (`/internal/runs*`,
+  `/internal/recent-judgments`) keep the raw `index_score` for diagnostics alongside `ranked`; clients
+  must not display it as an Index when `ranked` is false.
 - **Energy source couldn't be read** (pipeline-v2.5): if energy throughput has no verified figure and
   an energy-related source (research tagged it `energy`, or its URL/title looks like an impact,
   sustainability, ESG, CDP, emissions or data-table document) exists but could not be read — status
