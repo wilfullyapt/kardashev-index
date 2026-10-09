@@ -1,7 +1,6 @@
 """Golden-set smoke tests: the Tesla, SpaceXSI and NVIDIA failures seen in production on 2026-10-08,
 replayed through the full pipeline with recorded-style fixtures (tests/fixtures/golden) and a fake
 LLM that proposes exactly what the model proposed then. No network, no paid calls."""
-import json
 import re
 from pathlib import Path
 from urllib.parse import quote
@@ -39,11 +38,7 @@ def _figs(db, run_id):
 
 
 def _wayback(url: str, ts: str = "20251130120000") -> dict:
-    return {
-        fakes.WAYBACK_API_URL(url): (200, "application/json", json.dumps(
-            {"archived_snapshots": {"closest": {"available": True, "status": "200", "timestamp": ts,
-                                                 "url": f"http://web.archive.org/web/{ts}/{url}"}}})),
-    }
+    return {fakes.WAYBACK_CDX_URL(url): (200, "application/json", fakes.cdx_body(url, ts))}
 
 
 # ---------------------------------------------------------------- Tesla
@@ -253,6 +248,8 @@ def test_table_number_forms(quote, expected):
 
 
 def test_wayback_url_helper_matches_fetch_module():
-    from app.pipeline.fetch import WAYBACK_API
+    from app.pipeline.fetch import WAYBACK_API, WAYBACK_CDX
     url = "https://ir.tesla.com/x?y=1"
     assert fakes.WAYBACK_API_URL(url) == WAYBACK_API.format(url=quote(url, safe=""))
+    assert fakes.WAYBACK_CDX_URL(url) == WAYBACK_CDX.format(url=quote(url, safe=""), n=3)
+    assert "filter=statuscode:200" in fakes.WAYBACK_CDX_URL(url)

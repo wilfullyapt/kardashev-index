@@ -10,6 +10,27 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.11.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: fetch change. Component version: **pipeline-v2.7** (prompts-v2.4, weights-v1, rubrics-v1
+unchanged). Migration **0007** (one additive column). PR A of `ki-pipeline-issues-2.md`.
+
+### Fixed
+- **The Wayback fallback never worked in production**: it asked `web.archive.org/wayback/available`,
+  which answers HTTP 404, and silently gave up. It now lists the newest HTTP-200 captures with the CDX
+  API (falling back to `archive.org/wayback/available` only when CDX fails), so an archived block page
+  (tesla.com/impact's newest capture is Akamai's "Access Denied") is never picked; a copy that still
+  reads as a bot wall is skipped for the next capture (up to three).
+
+### Added
+- `sources.archive_attempt` (migration 0007): what the fallback did for every source that refused us
+  (lookup, outcome, note, capture used, captures tried). When no copy is used, the note is appended to
+  the source's reason, so "energy source couldn't be read" alerts say whether the archive was tried;
+  the admin run page shows a "Wayback: …" badge.
+- Archive.org politeness: at most `FETCH_WAYBACK_MAX_REQUESTS` (16) archive requests per run, two at a
+  time; a 429, 5xx, timeout or the "Temporarily Offline" page (HTTP 200) stops the fallback for the rest
+  of the run. Tests use responses recorded from archive.org (`tests/fixtures/wayback/`).
+
 ## [0.10.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: publishing rules and a new admin action. No component version changes (pipeline-v2.6,
