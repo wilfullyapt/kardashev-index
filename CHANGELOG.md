@@ -19,6 +19,7 @@ scored with. Whenever a component version changes, the entry here says so.
 - `/robots.txt` (disallows `/admin`, `/internal`, historical run views; links the sitemap),
   `/sitemap.xml` (public pages plus every company, with `lastmod` from the current run) and
   `/favicon.ico`.
+
 ### Security
 - Security headers on every response: CSP (`script-src 'self'`, `frame-ancestors 'none'`),
   X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, and HSTS over HTTPS only
