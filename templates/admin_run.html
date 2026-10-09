@@ -70,7 +70,8 @@
             <dt>Coverage / conf.</dt><dd class="mono">{{ '%.0f%%'|format(run.coverage * 100) if run.coverage is not none else '—' }} · {{ '%.0f%%'|format(run.confidence * 100) if run.confidence is not none else '—' }}</dd>
             <dt>Ranked / published</dt><dd class="mono">{{ run.ranked if run.ranked is not none else '—' }} · {{ run.published if run.published is not none else '—' }}</dd>
             {% if run.summary and run.summary.not_ranked_reason %}<dt>Not ranked</dt><dd>{{ run.summary.not_ranked_reason }}</dd>{% endif %}
-            {% if run.summary and run.summary.rank_basis == 'energy_undisclosed' %}<dt>Rank basis</dt><dd>energy undisclosed · {{ '%.0f%%'|format((run.summary.adjusted_coverage or 0) * 100) }} of the remaining weight</dd>{% endif %}
+            {% if run.summary and run.summary.energy_unreadable %}<dt>Energy couldn’t be read</dt><dd>{% for u in run.summary.energy_unreadable %}<span class="mono small">S{{ u.source_id }} {{ u.status }}{% if u.http_status %} {{ u.http_status }}{% endif %}</span> {{ u.reason }} <span class="dim wrap-any">{{ u.url }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}</dd>{% endif %}
+            {% if run.summary and run.summary.rank_basis == 'energy_undisclosed' %}<dt>Rank basis</dt><dd>no energy figure found (undisclosed basis) · {{ '%.0f%%'|format((run.summary.adjusted_coverage or 0) * 100) }} of the remaining weight</dd>{% endif %}
         </dl>
     </div>
 

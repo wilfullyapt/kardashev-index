@@ -6,7 +6,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-PIPELINE_VERSION = "pipeline-v2.4"
+PIPELINE_VERSION = "pipeline-v2.5"
 WEIGHTS_VERSION = "weights-v1"
 RUBRIC_VERSION = "rubrics-v1"
 

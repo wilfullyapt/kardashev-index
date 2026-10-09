@@ -57,16 +57,20 @@ def collect(db: Session, days: int = 7, now: datetime | None = None) -> dict:
 
     failed = [item(r) for r in rows if r.status == "failed"]
     retrying = [item(r, next_attempt_at=r.next_attempt_at.isoformat() if r.next_attempt_at else None)
-                for r in rows if r.status == "queued" and r.error_type]
+                for r in rows if r.status == "queued" and (r.error_type or r.trigger == "energy_retry")]
     degraded = [item(r, degraded=r.degraded) for r in rows if r.status == "succeeded" and r.degraded]
     withheld = [item(r, reason=(r.summary or {}).get("publish_note"))
                 for r in rows if r.status == "succeeded" and not r.published]
+    energy_unreadable = [item(r, unreadable=(r.summary or {}).get("energy_unreadable"))
+                         for r in rows if r.status == "succeeded" and (r.summary or {}).get("energy_unreadable")]
     stuck = [item(r) for r in rows if r.status == "running" and r.heartbeat_at
              and _aware(r.heartbeat_at) < now - timedelta(minutes=10)]
     cfg = config_warnings()
     return {"generated_at": now.isoformat(), "window_days": days, "config": cfg, "failed": failed,
             "retrying": retrying, "degraded": degraded, "withheld": withheld, "stuck": stuck,
-            "count": len(cfg) + len(failed) + len(retrying) + len(degraded) + len(withheld) + len(stuck)}
+            "energy_unreadable": energy_unreadable,
+            "count": len(cfg) + len(failed) + len(retrying) + len(degraded) + len(withheld) + len(stuck)
+            + len(energy_unreadable)}
 
 
 def notify(event: dict, *, url: str | None = None, sync: bool = False) -> bool:

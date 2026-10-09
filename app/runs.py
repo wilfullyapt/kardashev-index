@@ -63,6 +63,12 @@ def enqueue_run(db: Session, company_id: int, *, trigger: str, triggered_by: str
     """Returns (run, created). At most one active run per company (unique partial index)."""
     existing = active_run(db, company_id)
     if existing:
+        # A manual request runs a scheduled automatic retry now instead of waiting for it.
+        if (existing.status == "queued" and existing.next_attempt_at is not None
+                and existing.trigger in ("energy_retry",) and trigger not in ("energy_retry", "auto_sweep")):
+            existing.next_attempt_at = None
+            existing.triggered_by = triggered_by
+            db.commit()
         return existing, False
     run = JudgmentRun(company_id=company_id, status="queued", trigger=trigger, triggered_by=triggered_by,
                       suggestion_id=suggestion_id, attempt=0)

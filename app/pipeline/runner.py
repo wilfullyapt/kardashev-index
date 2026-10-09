@@ -14,11 +14,12 @@ Reliability (pipeline-v2.2):
   are recorded on the run and surfaced to admins."""
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
@@ -51,6 +52,38 @@ CURRENCY = ("capex", "revenue")
 _ACCOUNTING = ("model", "input_tokens", "output_tokens", "reasoning_tokens", "tool_calls", "cost_usd")
 STAGES = ("resolve", "research", "edgar", "fetch", "extract", "compute", "judge", "aggregate")
 ALWAYS_RERUN = ("compute", "aggregate")   # deterministic and cheap: recomputed on every resume
+
+
+# A source "found but unreadable": it exists but we could not get its text (vs. dead links / soft 404s).
+UNREADABLE_HTTP = {401, 403, 406, 429, 451, 500, 502, 503, 504}
+_ENERGY_DOC = re.compile(r"impact|sustainab|\besg\b|environment|energy|climate|\bcdp\b|emission|carbon|\bghg\b|"
+                         r"\bgri\b|data[- ]?(?:appendix|table|sheet)|\bkpi", re.IGNORECASE)
+ENERGY_RETRY_TRIGGER = "energy_retry"
+
+
+def source_unreadable(src) -> bool:
+    if src.status in ("error", "thin"):
+        return True
+    if src.status == "dead":
+        if src.http_status in UNREADABLE_HTTP:
+            return True
+        reason = (src.reject_reason or "").lower()
+        return src.http_status is None and ("timeout" in reason or "timed out" in reason or "read" in reason)
+    return False
+
+
+def energy_unreadable_sources(db: Session, run_id: int, candidates: list[dict]) -> list[dict]:
+    """Energy-relevant sources of this run that exist but could not be read."""
+    covers = {c.get("url"): set(c.get("covers") or []) for c in candidates or []}
+    out = []
+    for src in db.query(Source).filter(Source.run_id == run_id, Source.origin != "edgar").order_by(Source.id):
+        if not source_unreadable(src):
+            continue
+        energy = "energy" in covers.get(src.url, set()) or bool(_ENERGY_DOC.search(f"{src.url} {src.title or ''}"))
+        if energy:
+            out.append({"source_id": src.id, "url": src.url, "status": src.status,
+                        "http_status": src.http_status, "reason": (src.reject_reason or "")[:200]})
+    return out
 
 
 class RunFailed(Exception):
@@ -799,11 +832,22 @@ def stage_aggregate(ctx: RunContext):
         ok_sources = ctx.db.query(Source).filter(Source.run_id == run.id, Source.status == "ok",
                                                  Source.origin != "edgar").count()
         energy_missing = scores.get("energy_throughput", (None, 0))[0] is None
-        undisclosed = (ctx.s.energy_undisclosed_rule and energy_missing
+        unreadable = energy_unreadable_sources(ctx.db, run.id, ctx.candidates) if energy_missing else []
+        # "No energy figure found" (undisclosed basis) only when no energy source failed to read.
+        undisclosed = (ctx.s.energy_undisclosed_rule and energy_missing and not unreadable
                        and ok_sources >= ctx.s.energy_undisclosed_min_sources)
         agg = aggregate(scores, min_coverage=ctx.s.rank_min_coverage, min_measured=ctx.s.rank_min_measured,
                         energy_undisclosed=undisclosed, min_measured_share=ctx.s.rank_min_measured_share,
                         min_confidence=ctx.s.rank_min_confidence)
+        if unreadable:
+            # Never score a company without energy because we failed to read its energy source.
+            agg = replace(agg, ranked=False, basis="energy_unreadable",
+                          reason=(f"energy source found but couldn't be read ({len(unreadable)}: "
+                                  f"{unreadable[0]['reason'] or unreadable[0]['status']}); retry scheduled"
+                                  if ctx.s.energy_retry_enabled else
+                                  f"energy source found but couldn't be read ({len(unreadable)})")[:300])
+            ctx.flags.append(f"energy couldn't be read: {len(unreadable)} energy source(s) found but unreadable")
+            st.detail["energy_unreadable"] = unreadable[:10]
         run.index_score, run.measured_score, run.judged_score = agg.index_score, agg.measured_score, agg.judged_score
         run.coverage, run.confidence, run.ranked = agg.coverage, agg.confidence, agg.ranked
         if ctx.headline:
@@ -824,6 +868,7 @@ def stage_aggregate(ctx: RunContext):
                        "previous_index": prev.index_score if prev else None,
                        "publish_note": note, "rank_basis": agg.basis, "adjusted_coverage": agg.adjusted_coverage,
                        "energy_undisclosed": agg.basis == "energy_undisclosed", "degraded": run.degraded,
+                       "energy_unreadable": unreadable[:10] or None,
                        "identity_check": e.get("identity_check"), "ok_sources": ok_sources}
         # Identity facts from resolution (never scores) are applied to the company.
         for attr, val in (("official_name", e.get("official_name")), ("ticker", e.get("ticker")),
@@ -957,6 +1002,11 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
         db.commit()
         if run.degraded or not run.published:
             alerts.notify(alerts.run_event(run, "run_degraded" if run.degraded else "run_withheld"))
+        if (run.summary or {}).get("energy_unreadable"):
+            retry = schedule_energy_retry(db, run, deps)
+            alerts.notify({**alerts.run_event(run, "energy_unreadable"),
+                           "retry_run_id": retry.id if retry else None,
+                           "unreadable": run.summary["energy_unreadable"][:5]})
     except Paused as p:
         db.rollback()
         run = db.get(JudgmentRun, run_id)
@@ -997,6 +1047,46 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
             db.commit()
             alerts.notify(alerts.run_event(run, "run_failed"))
     return run
+
+
+def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | None:
+    """Queue one follow-up run ENERGY_RETRY_DELAY_HOURS from now (worker waits for next_attempt_at).
+
+    Bounded: disabled by ENERGY_RETRY_ENABLED=0; at most ENERGY_RETRY_MAX consecutive retries per
+    company (counted over its latest runs); never when another run is already active. Each retry is
+    a normal (paid, ~SWEEP_EST_RUN_USD) run."""
+    s = deps.settings
+    if not s.energy_retry_enabled or s.energy_retry_max <= 0:
+        return None
+    from ..runs import active_run
+    if active_run(db, run.company_id) is not None:
+        return None
+    streak = 0
+    for r in (db.query(JudgmentRun).filter(JudgmentRun.company_id == run.company_id)
+              .order_by(JudgmentRun.id.desc()).limit(s.energy_retry_max + 1)):
+        if r.trigger == ENERGY_RETRY_TRIGGER:
+            streak += 1
+        else:
+            break
+    if streak >= s.energy_retry_max:
+        db.add(IngestLog(company_id=run.company_id, action="energy_retry_skipped", admin_id="system",
+                         details={"run_id": run.id, "reason": f"{streak} energy retries in a row (max {s.energy_retry_max})"}))
+        db.commit()
+        return None
+    retry = JudgmentRun(company_id=run.company_id, status="queued", trigger=ENERGY_RETRY_TRIGGER,
+                        triggered_by="system", attempt=0,
+                        next_attempt_at=deps.now() + timedelta(hours=s.energy_retry_delay_hours))
+    db.add(retry)
+    try:
+        db.commit()
+    except DBAPIError:
+        db.rollback()
+        return None
+    db.add(IngestLog(company_id=run.company_id, action="energy_retry_scheduled", admin_id="system",
+                     details={"run_id": run.id, "retry_run_id": retry.id,
+                              "next_attempt_at": retry.next_attempt_at.isoformat()}))
+    db.commit()
+    return retry
 
 
 def _finish(ctx: RunContext, t0: float):
