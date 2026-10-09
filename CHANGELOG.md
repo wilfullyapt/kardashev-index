@@ -10,6 +10,16 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+### Added
+- `PUBLIC_BASE_URL`: the canonical public origin. When set, other hosts (including
+  `*.onrender.com`) are redirected to it (`301` for GET/HEAD, `308` otherwise; `/health` and
+  `/internal/*` are exempt). Canonical, `og:url`, `og:image` and the sitemap use it. Unset = no-op.
+- Every page has an absolute `<link rel="canonical">` and `og:url`. Search results (`/?q=`) point to
+  `/`, and historical run pages point to the company page.
+- `/robots.txt` (disallows `/admin`, `/internal`, historical run views; links the sitemap),
+  `/sitemap.xml` (public pages plus every company, with `lastmod` from the current run) and
+  `/favicon.ico`.
+
 ### Changed
 - Render now deploys a `main` commit only after its GitHub checks pass (`autoDeployTrigger: checksPass`)
   and uses `/health` as its health check (`healthCheckPath`). The outdated `env: python` /
