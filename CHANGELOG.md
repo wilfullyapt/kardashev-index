@@ -11,11 +11,19 @@ scored with. Whenever a component version changes, the entry here says so.
 ## [Unreleased]
 
 ### Security
-- Upgraded dependencies with known advisories (pip-audit: 68 advisories → 0). FastAPI 0.115 → 0.143
-  with Starlette pinned at 1.7.0 (was 0.38.6); python-multipart 0.0.9 → 0.0.32; pypdf 5.1 → 6.20;
-  jinja2 3.1.6; lxml 6.1.3; python-dotenv 1.2.4. Templates now use Starlette 1.x's
-  `TemplateResponse(request, name, context)` signature.
-- Dependabot version updates (`.github/dependabot.yml`): pip and GitHub Actions, weekly, grouped.
+- Security headers on every response: CSP (`script-src 'self'`, `frame-ancestors 'none'`),
+  X-Frame-Options, nosniff, Referrer-Policy, Permissions-Policy, COOP, and HSTS over HTTPS only
+  (`HSTS_MAX_AGE`, default 1 day; `HSTS_INCLUDE_SUBDOMAINS` opt-in).
+- htmx is vendored (`static/vendor/htmx-1.9.12.min.js`, SRI-pinned) instead of loaded from unpkg.
+  Inline `onsubmit` confirms moved to `static/js/app.js` (`data-confirm`).
+- Admin session cookie: `Secure` in production, `HttpOnly`, `SameSite=Lax`, 12-hour lifetime. The
+  session is renewed on login.
+- `SECRET_KEY` is required in production (`RENDER=true` or `APP_ENV=production`). There is no more
+  `dev-secret` fallback; local development uses a random per-process key.
+- Admin login throttle: 5 failures per IP in 15 min locks that IP for 15 min; 50 failures overall
+  pause all logins for 15 min. Responses are `429` with `Retry-After`, and failures are logged.
+- Cross-origin `POST`/`PUT`/`PATCH`/`DELETE` to `/admin/*` and `/internal/*` are refused with `403`
+  (Origin/Referer must match the host; header-less API clients such as Hermes are unaffected).
 
 ### Changed
 - Render now deploys a `main` commit only after its GitHub checks pass (`autoDeployTrigger: checksPass`)
