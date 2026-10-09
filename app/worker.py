@@ -228,9 +228,17 @@ class Worker:
                "last_sweep_day": self.last_sweep_day}
         try:
             with self.session_factory() as db:
-                out["queue_depth"] = db.query(JudgmentRun).filter(JudgmentRun.status == "queued").count()
-                out["retries_scheduled"] = db.query(JudgmentRun).filter(
-                    JudgmentRun.status == "queued", JudgmentRun.next_attempt_at.isnot(None)).count()
+                queued = db.query(JudgmentRun).filter(JudgmentRun.status == "queued")
+                # queued_now: what the worker would pick up right now (same filter as process_next);
+                # scheduled: retries waiting for a future next_attempt_at (e.g. a 24 h energy retry).
+                out["queued_now"] = queued.filter((JudgmentRun.next_attempt_at.is_(None)) |
+                                                  (JudgmentRun.next_attempt_at <= now)).count()
+                future = queued.filter(JudgmentRun.next_attempt_at > now)
+                out["scheduled"] = future.count()
+                nxt = future.order_by(JudgmentRun.next_attempt_at.asc()).first()
+                out["next_scheduled_at"] = nxt.next_attempt_at.isoformat() if nxt else None
+                out["queue_depth"] = out["queued_now"]          # kept for monitors; excludes future retries
+                out["retries_scheduled"] = out["scheduled"]     # deprecated alias
                 last = (db.query(JudgmentRun).filter(JudgmentRun.status.in_(("succeeded", "failed")))
                         .order_by(JudgmentRun.finished_at.desc(), JudgmentRun.id.desc()).first())
                 out["last_run"] = ({"run_id": last.id, "status": last.status, "ranked": last.ranked,

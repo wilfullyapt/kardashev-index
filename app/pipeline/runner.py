@@ -584,7 +584,7 @@ def _scaled_number(value: float, span: str, factor: float) -> float | None:
     return None
 
 
-def _extract_call(ctx: RunContext, st: Stage, avoid: dict | None = None):
+def _extract_call(ctx: RunContext, st: Stage, avoid: dict | None = None, nudge: bool = False):
     plans = {sid: ev.plan(t.text) for sid, t in ctx.texts.items()}
     budgets = ev.allocate(plans, {sid: len(t.text) for sid, t in ctx.texts.items()},
                           ctx.s.extract_max_chars, ctx.s.per_source_chars)
@@ -596,11 +596,37 @@ def _extract_call(ctx: RunContext, st: Stage, avoid: dict | None = None):
         sent[f"S{sid}"] = {"chars": len(t.text), "sent": len(w), "relevance": round(plans[sid].relevance, 1)}
     st.detail["input" if avoid is None else "input_retry"] = sent
     sid_map = {f"S{sid}": sid for sid in ctx.texts}
+    user = P.extract_user(ctx.entity.get("official_name", ""), blocks)
+    if nudge:
+        user = f'{user}\n\nYour previous reply: {{"figures": [], "claims": []}}\n\n{P.EXTRACT_NUDGE}'
     (figures, claims, rejected), _ = ctx.call_json(
-        st, kind="chat", system=P.EXTRACT_SYSTEM, user=P.extract_user(ctx.entity.get("official_name", ""), blocks),
+        st, kind="chat", system=P.EXTRACT_SYSTEM, user=user,
         validate=lambda d: P.validate_extract(d, set(sid_map)), max_tokens=ctx.s.extract_max_tokens,
         reserve=ctx.s.judge_reserve_usd)
     return figures, claims, rejected, chosen, sid_map
+
+
+_NORMAL_FINISH = (None, "stop", "completed", "end_turn")
+
+
+def _cut_off(attempt: dict) -> bool:
+    """The model was stopped, not done: length/max-tokens, content filter, any other abnormal finish,
+    or no output at all. ``{"figures": [], "claims": []}`` with a normal finish is an answer."""
+    return attempt.get("finish_reason") not in _NORMAL_FINISH or not (attempt.get("output_tokens") or 0)
+
+
+def _empty_diagnostics(st: Stage, last: dict) -> dict:
+    sent = st.detail.get("input_retry") or st.detail.get("input") or {}
+    return {"sources": len(sent), "chars_sent": sum(v.get("sent", 0) for v in sent.values()),
+            "chars_available": sum(v.get("chars", 0) for v in sent.values()),
+            "output_tokens": last.get("output_tokens"), "reasoning_tokens": last.get("reasoning_tokens"),
+            "finish_reason": last.get("finish_reason")}
+
+
+def _diag_text(d: dict) -> str:
+    return (f"{d['sources']} sources, {d['chars_sent']:,} of {d['chars_available']:,} chars sent, "
+            f"output_tokens={d['output_tokens']}, reasoning_tokens={d['reasoning_tokens']}, "
+            f"finish_reason={d['finish_reason']}")
 
 
 def stage_extract(ctx: RunContext):
@@ -612,20 +638,22 @@ def stage_extract(ctx: RunContext):
         try:
             figures, claims, rejected, chosen, sid_map = _extract_call(ctx, st)
             if not figures and not claims:
-                # Empty extraction is never silent: keep diagnostics, retry once on other excerpts.
+                # Empty extraction is never silent: keep diagnostics and re-ask at once, nudged, on other
+                # excerpts (the full text when a source fits the budget), instead of a queued retry.
                 st.detail["empty_first_try"] = dict(st.detail["attempts"][-1])
-                figures, claims, rejected, _, sid_map = _extract_call(ctx, st, avoid=chosen)
-                st.detail["retried_with_other_excerpts"] = True
+                figures, claims, rejected, _, sid_map = _extract_call(ctx, st, avoid=chosen, nudge=True)
+                st.detail["retried_with_other_excerpts"] = st.detail["nudged"] = True
                 if not figures and not claims:
                     last = st.detail["attempts"][-1]
-                    aborted = (last.get("output_tokens") or 0) < 40 or \
-                        last.get("finish_reason") not in (None, "stop", "completed", "end_turn")
-                    if aborted and not ctx.final_attempt:
+                    diag = _empty_diagnostics(st, last)
+                    st.detail["empty_extraction"] = diag
+                    if _cut_off(last) and not ctx.final_attempt:
+                        # a real cut-off (length/content filter/no output): worth a later attempt
                         raise RunFailed("empty_extraction",
-                                        f"extract: model returned no figures or claims twice (output_tokens="
-                                        f"{last.get('output_tokens')}, finish_reason={last.get('finish_reason')})",
+                                        f"extract: model output was cut off twice ({_diag_text(diag)})",
                                         transient=True)
-                    st.degrade("model returned no figures or claims (twice, on different excerpts)")
+                    # a deliberate empty answer twice is a result, not an outage: degrade, don't queue
+                    st.degrade(f"model found no figures or claims, twice (second time nudged; {_diag_text(diag)})")
         except BudgetReached as e:
             st.degrade(f"budget cap reached before extraction ({e})")
         except RunFailed as e:

@@ -31,12 +31,16 @@ class FakeLLM:
         item = queue.pop(0) if len(queue) > 1 else queue[0]
         if isinstance(item, Exception):
             raise item
+        if isinstance(item, LLMResult):       # full control over tokens / finish_reason
+            return stage, item
         if callable(item):
             item = item(user)
         return stage, item if isinstance(item, str) else json.dumps(item)
 
     def chat(self, *, system, user, model, max_tokens=8000):
         _stage, text = self._next(system, user, "chat")
+        if isinstance(text, LLMResult):
+            return text
         return LLMResult(text=text, model=FAKE_MODEL, input_tokens=1000, output_tokens=300, reasoning_tokens=100,
                          cost_usd=self.cost, duration_ms=5)
 
@@ -214,6 +218,12 @@ def make_deps(llm=None, routes=None, sec=True, retry=NO_RETRY, fetcher=None, now
     extra = {"now": now} if now else {}
     return Deps(llm=llm, fetcher=fetcher or FakeFetcher(world_routes() if routes is None else routes), settings=cfg,
                 probe_token=lambda: "PROBE", retry=retry, **extra)
+
+
+def empty_reply(output_tokens=12, finish_reason="stop", text='{"figures": [], "claims": []}') -> LLMResult:
+    """What grok returned for Anduril #25: an empty JSON answer with a normal finish."""
+    return LLMResult(text=text, model=FAKE_MODEL, input_tokens=21000, output_tokens=output_tokens,
+                     reasoning_tokens=900, cost_usd=0.01, duration_ms=5, finish_reason=finish_reason)
 
 
 def api_error(msg="HTTP 503: overloaded"):
