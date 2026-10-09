@@ -10,6 +10,19 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.12.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: fetch change. Component version: **pipeline-v2.8** (follows PR A, which takes 0.11.0 /
+pipeline-v2.7; prompts, weights and rubrics unchanged). PR B of `ki-pipeline-issues-2.md`.
+
+### Added
+- **Report-PDF discovery**: a report landing page we could read (original or Wayback copy) has its
+  disclosure PDF links followed, without model calls: newest year and full edition first, at most 2
+  per page and 4 per run (`FETCH_DISCOVER_PER_PAGE`, `FETCH_DISCOVER_MAX`), fetched one at a time
+  through the Wayback fallback and the large-PDF reader. Example: tesla.com/impact (403) → its
+  2026-06-11 Wayback copy → `2024-extended-version-tesla-impact-report.pdf` (403) → its Wayback copy,
+  read by the large-PDF reader. Sources found this way have origin `discovered`.
+
 ## [0.11.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: fetch change. Component version: **pipeline-v2.7** (prompts-v2.4, weights-v1, rubrics-v1

@@ -36,7 +36,8 @@ from . import semantics as sem
 from .aggregate import aggregate
 from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
-from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, Wayback
+from .discover import is_report_page, pick, report_links
+from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
 from .largepdf import read_large_pdf, rescue_oversized
 from .llm import LLM, LLMError, LLMResult, extract_json
 from .sources import rank_candidates
@@ -459,6 +460,31 @@ def stage_edgar(ctx: RunContext):
                           "concepts": {m: (s[0].concept if s else None) for m, s in fin.items()}})
 
 
+def _discover(ctx: RunContext, results) -> list[dict]:
+    """Report PDFs linked from report landing pages we could read (original or Wayback copy)."""
+    if ctx.s.discover_max <= 0 or ctx.s.discover_per_page <= 0:
+        return []
+    known = {c["url"] for c in ctx.candidates}
+    out: list[dict] = []
+    for c, res, a, _original, _att in results:
+        if a.status not in ("ok", "thin") or not res.body or is_pdf_body(res.content_type, res.body):
+            continue
+        base = c["url"] if res.archived_from else (res.final_url or c["url"])
+        title = a.snapshot.title if a.snapshot and a.snapshot.title else c.get("title")
+        if not is_report_page(base, title, c.get("covers")):
+            continue
+        for lk in pick(report_links(res.body, base), ctx.s.discover_per_page):
+            if len(out) >= ctx.s.discover_max:
+                return out
+            if lk.url in known:
+                continue
+            known.add(lk.url)
+            out.append({"url": lk.url, "title": lk.text or None, "covers": ["energy"], "origin": "discovered",
+                        "why": f"PDF linked from {c['url']}" + (" (archived copy)" if res.archived_from else ""),
+                        "found_on": c["url"]})
+    return out
+
+
 def stage_fetch(ctx: RunContext):
     with ctx.stage("fetch") as st:
         if not ctx.candidates:
@@ -487,6 +513,12 @@ def stage_fetch(ctx: RunContext):
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             results = list(pool.map(work, ctx.candidates))
+        discovered = _discover(ctx, results)
+        if discovered:      # one at a time: these are usually large PDFs (large-PDF reader, archive)
+            results += [work(c) for c in discovered]
+            ctx.candidates.extend(discovered)
+            st.cp["discovered"] = discovered
+            st.detail["discovered"] = [{"url": c["url"], "from": c["found_on"]} for c in discovered]
         counts: dict[str, int] = {}
         domain = ctx.entity.get("domain")
         seen_sha: dict[str, int] = {}
@@ -929,6 +961,8 @@ def _restore(ctx: RunContext):
         ctx.entity = dict(cp.get("entity") or {})
     if ctx.done("research"):
         ctx.candidates = list(cp.get("candidates") or [])
+    if ctx.done("fetch"):
+        ctx.candidates += list(cp.get("discovered") or [])
     sources = {s.id: s for s in db.query(Source).filter(Source.run_id == run_id)}
     if ctx.done("edgar"):
         for e in db.query(Evidence).filter(Evidence.run_id == run_id, Evidence.kind == "filing",
