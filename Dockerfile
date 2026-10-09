@@ -1,7 +1,7 @@
 # Local/self-hosted container. Production on Render uses the native Python runtime and
 # render.yaml (build: pip install + alembic upgrade head; start: uvicorn), not this file.
-# Python matches CI (3.11).
-FROM python:3.11-slim
+# Python matches .python-version / CI / Render (3.12.15).
+FROM python:3.12.15-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app

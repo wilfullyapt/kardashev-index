@@ -10,6 +10,11 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+### Changed
+- Python pinned to 3.12.15 everywhere: `.python-version` (single source for CI), `PYTHON_VERSION`
+  in `render.yaml` (production previously built on Render's default, 3.14.3), the Dockerfile base
+  image, and `requires-python` in `pyproject.toml`.
+
 ## [0.3.0] - Unreleased (to be tagged after merge, with owner approval)
 
 ### Added
