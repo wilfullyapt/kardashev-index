@@ -16,6 +16,7 @@ from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, 
 from . import alerts as alerts_svc
 from . import runs as runs_svc
 from . import disclosure
+from . import publication
 from .pipeline import methodology as meth
 from .pipeline.config import code_version, settings as pipeline_settings, worker_settings
 from .pipeline.fetch import HttpFetcher
@@ -909,6 +910,51 @@ def admin_run_detail(run_id: int, request: Request, db: Session = Depends(get_db
         {"request": request, "admin": current_admin, "version": __version__, "d": runs_svc.admin_run_detail(db, run),
          "meth": meth, "alerts": _admin_alerts(db), **pop_flash(request)},
     )
+
+
+@app.post("/admin/runs/{run_id}/retract")
+async def admin_run_retract(run_id: int, request: Request, db: Session = Depends(get_db),
+                            current_admin: str = Depends(get_current_admin)):
+    """Retract a published run known to be wrong. Same-origin check (CSRF) by SecurityMiddleware;
+    audit-logged in ingest_logs; the public page shows a dated correction note with the reason."""
+    run = db.get(JudgmentRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    form = await request.form()
+    try:
+        publication.retract(db, run, current_admin, form.get("reason") or "")
+    except publication.RetractError as e:
+        db.rollback()
+        flash(request, f"Not retracted: {e}.", "error")
+        return RedirectResponse(f"/admin/runs/{run_id}", status_code=303)
+    db.commit()
+    company = db.get(Company, run.company_id)
+    flash(request, f"Run #{run.id} retracted. Current run is now "
+                   f"{'#' + str(company.current_run_id) if company.current_run_id else 'none'}.")
+    return RedirectResponse(f"/admin/runs/{run_id}", status_code=303)
+
+
+@app.post("/internal/runs/{run_id}/retract")
+async def internal_run_retract(run_id: int, request: Request, hermes_key: str = None,
+                               db: Session = Depends(get_db)):
+    """Hermes/automation equivalent of the admin action: JSON body {"reason": "..."}."""
+    who = require_internal(request, hermes_key)
+    run = db.get(JudgmentRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    try:
+        publication.retract(db, run, who, (body or {}).get("reason") or "")
+    except publication.RetractError as e:
+        db.rollback()
+        raise HTTPException(422, str(e)) from e
+    db.commit()
+    company = db.get(Company, run.company_id)
+    return {"run_id": run.id, "retracted": True, "retracted_by": who, "reason": run.retraction_reason,
+            "current_run_id": company.current_run_id}
 
 
 @app.get("/internal/runs/{run_id}")

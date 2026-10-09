@@ -852,11 +852,15 @@ def stage_aggregate(ctx: RunContext):
         run.coverage, run.confidence, run.ranked = agg.coverage, agg.confidence, agg.ranked
         if ctx.headline:
             run.avg_power_w, run.k_equivalent = ctx.headline["avg_power_w"], ctx.headline["k_equivalent"]
-        prev = ctx.db.get(JudgmentRun, company.current_run_id) if company.current_run_id else None
+        prev = publication.current_run(ctx.db, company)     # read-time current (skips retracted runs)
         if prev is not None and prev.id == run.id:
             prev = None
         publish, note = publication.decide(agg.ranked, agg.coverage, prev,
                                            publication.has_legacy_scores(ctx.db, company.id))
+        if not publish and publication.can_supersede(run, prev, degraded=list(ctx.degraded), basis=agg.basis):
+            publish = True       # newer pipeline wins over a run measured with superseded rules
+            note = publication.SUPERSEDED_NOTE.format(prev=prev.id, new=run.pipeline_version,
+                                                      old=prev.pipeline_version)
         run.published = publish
         run.degraded = list(ctx.degraded) or None
         if agg.basis == "energy_undisclosed" and agg.ranked:

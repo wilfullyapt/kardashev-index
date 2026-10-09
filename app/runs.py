@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from . import publication
 from .judgment import is_placeholder, summarize_scores
 from .models import (ACTIVE_RUN_STATUSES, CategoryScore, Company, Evidence, JudgmentRun, JudgmentStage, Metric,
                      Score, Source)
@@ -139,8 +140,9 @@ def leaderboard(db: Session, limit: int = 100, q: str | None = None) -> tuple[li
         query = query.filter(Company.canonical_name.ilike(f"%{q}%") | Company.industry.ilike(f"%{q}%")
                              | Company.official_name.ilike(f"%{q}%"))
     companies = query.all()
-    run_ids = [c.current_run_id for c in companies if c.current_run_id]
-    runs = {r.id: r for r in db.query(JudgmentRun).filter(JudgmentRun.id.in_(run_ids))} if run_ids else {}
+    rp = publication.replay_companies(db, [c.id for c in companies])
+    current = {c.id: rp[c.id].current for c in companies}
+    run_ids = [r.id for r in current.values() if r]
     cats: dict[int, dict[str, CategoryScore]] = defaultdict(dict)
     if run_ids:
         for cs in db.query(CategoryScore).filter(CategoryScore.run_id.in_(run_ids)):
@@ -156,7 +158,7 @@ def leaderboard(db: Session, limit: int = 100, q: str | None = None) -> tuple[li
             legacy[s.company_id].append(s)
     ranked, awaiting = [], []
     for c in companies:
-        run = runs.get(c.current_run_id)
+        run = current.get(c.id)
         entry = {"company": c, "run": run, "cats": cats.get(run.id, {}) if run else {},
                  "active": active.get(c.id), "legacy": summarize_scores(legacy.get(c.id, []))}
         if run and run.is_ranked:
@@ -184,9 +186,10 @@ def company_view(db: Session, company: Company, run: JudgmentRun | None = None,
                  hist: dict | None = None) -> dict:
     """Dossier for the current published run, or (``run`` given) a historical published run.
     ``hist`` is history(); used for N-x labels and per-category deltas vs the previous run."""
-    historical = run is not None and run.id != company.current_run_id
+    cur = publication.current_run(db, company)
+    historical = run is not None and (cur is None or run.id != cur.id)
     if run is None:
-        run = db.get(JudgmentRun, company.current_run_id) if company.current_run_id else None
+        run = cur
     view: dict = {"run": run, "active": None if historical else active_run(db, company.id), "categories": [],
                   "measured": [], "judged": [], "figures": [], "sources": [], "stages": [], "headline": None,
                   "previous": None, "historical": historical, "entry": None, "prev_entry": None}
@@ -282,13 +285,15 @@ def parse_rel(ref: str) -> int | None:
 def history(db: Session, company: Company) -> dict:
     """Public history: published runs oldest→newest with stable ordinals (1, 2, …) and labels
     relative to the current run (N, N-1, …), category scores, deltas and sparkline series."""
-    runs = [r for r in published_runs(db, company.id) if r.id == company.current_run_id or not is_empty_run(r)]
+    rp = publication.replay_companies(db, [company.id])[company.id]
+    cur_id = rp.current.id if rp.current else None
+    runs = [r for r in rp.public if r.id == cur_id or not is_empty_run(r)]
     ids = [r.id for r in runs]
     cats: dict[int, dict[str, float | None]] = defaultdict(dict)
     if ids:
         for cs in db.query(CategoryScore).filter(CategoryScore.run_id.in_(ids)):
             cats[cs.run_id][cs.category] = cs.score
-    cur = next((i for i, r in enumerate(runs) if r.id == company.current_run_id), len(runs) - 1)
+    cur = next((i for i, r in enumerate(runs) if r.id == cur_id), len(runs) - 1)
     entries = []
     last_ranked: tuple[int, JudgmentRun] | None = None    # (index in runs, run) of the latest ranked run so far
     for i, r in enumerate(runs):
@@ -301,6 +306,7 @@ def history(db: Session, company: Company) -> dict:
                         "current": i == cur, "cats": cats.get(r.id, {}), "delta": delta, "delta_vs": delta_vs,
                         "ranked": ranked,
                         "not_ranked_reason": None if ranked else (r.rank_reason or "insufficient data"),
+                        "public_note": rp.notes.get(r.id),
                         "url": f"/companies/{company.id}" if i == cur else f"/companies/{company.id}/runs/{i + 1}"})
         if ranked:
             last_ranked = (i, r)
@@ -312,15 +318,20 @@ def history(db: Session, company: Company) -> dict:
     # Later successful runs that were withheld by the publishing guard (below the ranking
     # thresholds while better data exists). Shown publicly only as a dated, labelled note.
     after = runs[cur].finished_at if runs else None
+    public_ids = {r.id for r in rp.public}
     wq = db.query(JudgmentRun).filter(JudgmentRun.company_id == company.id, JudgmentRun.status == "succeeded",
-                                      JudgmentRun.published.isnot(True))
+                                      JudgmentRun.retracted_at.is_(None))
     withheld = [r for r in wq.order_by(JudgmentRun.finished_at.desc(), JudgmentRun.id.desc()).all()
-                if after is None or (r.finished_at and _aware(r.finished_at) > _aware(after))]
+                if r.id not in public_ids
+                and (after is None or (r.finished_at and _aware(r.finished_at) > _aware(after)))]
     return {"runs": entries, "current": entries[cur] if entries else None,
             "withheld": [{"finished_at": r.finished_at,
                           "reason": (r.summary or {}).get("not_ranked_reason") or "below the ranking thresholds"}
                          for r in withheld[:3]],
             "withheld_total": len(withheld),
+            # Corrections: retracted runs, newest first (dated note with the reason, never their scores).
+            "corrections": [{"retracted_at": r.retracted_at, "finished_at": r.finished_at,
+                             "reason": r.retraction_reason or "retracted"} for r in reversed(rp.retracted)],
             "legacy": legacy if legacy and legacy.get("scores") else None,
             # Index trend over ranked runs only (unranked runs are gaps, never plotted).
             "spark_index": spark([e["run"].index_score if e["ranked"] else None for e in entries], 0, 10),
@@ -373,9 +384,8 @@ def admin_companies(db: Session) -> list[dict]:
     for r in db.query(JudgmentRun).order_by(JudgmentRun.id):
         counts[r.company_id] += 1
         last[r.company_id] = r
-    cur_ids = [c.current_run_id for c in companies if c.current_run_id]
-    cur = {r.id: r for r in db.query(JudgmentRun).filter(JudgmentRun.id.in_(cur_ids))} if cur_ids else {}
-    return [{"company": c, "runs": counts.get(c.id, 0), "last": last.get(c.id), "current": cur.get(c.current_run_id)}
+    rp = publication.replay_companies(db, [c.id for c in companies])
+    return [{"company": c, "runs": counts.get(c.id, 0), "last": last.get(c.id), "current": rp[c.id].current}
             for c in companies]
 
 
@@ -389,7 +399,8 @@ def admin_run_detail(db: Session, run: JudgmentRun) -> dict:
     ev_total = db.query(Evidence).filter(Evidence.run_id == run.id).count()
     ev_ok = db.query(Evidence).filter(Evidence.run_id == run.id, Evidence.quote_verified.is_(True)).count()
     public_url = None
-    if run.status == "succeeded" and run.published:
+    mark_public(db, [run])
+    if run.status == "succeeded" and run.public_now:
         for e in history(db, company)["runs"]:
             if e["run"].id == run.id:
                 public_url = e["url"]
@@ -416,5 +427,14 @@ def admin_runs(db: Session, limit: int = 15, runs: list[JudgmentRun] | None = No
     if runs:
         for s in db.query(JudgmentStage).filter(JudgmentStage.run_id.in_([r.id for r in runs])).order_by(JudgmentStage.id):
             stages[s.run_id].append(s)
+    mark_public(db, runs)
     return [{"run": r, "name": names.get(r.company_id, f"#{r.company_id}"), "stages": stages.get(r.id, [])}
             for r in runs]
+
+
+def mark_public(db: Session, runs: list[JudgmentRun]) -> None:
+    """Set ``run.public_now`` (shown publicly under the read-time rules) for the admin badges."""
+    rp = publication.replay_companies(db, sorted({r.company_id for r in runs}))
+    public = {x.id for v in rp.values() for x in v.public}
+    for r in runs:
+        r.public_now = r.id in public

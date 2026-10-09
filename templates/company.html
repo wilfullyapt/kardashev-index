@@ -25,6 +25,9 @@
     {% else %}
     <a href="/" class="crumb"><span aria-hidden="true">←</span> The leaderboard</a>
     {% endif %}
+    {% if hist and hist.corrections and not v.historical %}{%- set c0 = hist.corrections[0] -%}
+    <div class="histbar" role="note"><span><strong>Correction ({{ c0.retracted_at|pt_date }}):</strong> an earlier published run ({{ c0.finished_at|pt_date }}) was retracted — {{ c0.reason }}. <a href="#history">Details</a></span></div>
+    {% endif %}
 
     <section class="dossier" aria-labelledby="co-name">
         <div>

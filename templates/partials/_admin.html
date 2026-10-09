@@ -23,7 +23,8 @@
 
 {%- macro status(run) -%}
 <span class="runstat runstat--{{ run.status }}">{{ run.status }}</span>
-{%- if run.status == 'succeeded' and not run.published %} <span class="runstat runstat--withheld" title="{{ (run.summary or {}).get('publish_note') or 'not published' }}">withheld</span>{% endif -%}
+{%- if run.retracted_at %} <span class="runstat runstat--withheld" title="{{ run.retraction_reason or 'retracted' }}">retracted</span>
+{%- elif run.status == 'succeeded' and not (run.public_now if run.public_now is defined else run.published) %} <span class="runstat runstat--withheld" title="{{ (run.summary or {}).get('publish_note') or 'not published' }}">withheld</span>{% endif -%}
 {%- endmacro -%}
 
 {#- Operational alerts banner (failed / retrying / degraded / withheld runs, config warnings). -#}
