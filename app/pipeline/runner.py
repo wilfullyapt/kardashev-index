@@ -14,7 +14,6 @@ Reliability (pipeline-v2.2):
   are recorded on the run and surfaced to admins."""
 from __future__ import annotations
 
-import re
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -36,6 +35,7 @@ from . import semantics as sem
 from .aggregate import aggregate
 from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
+from .disclosure import classify as energy_disclosure
 from .discover import is_report_page, pick, report_links
 from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
 from .largepdf import read_large_pdf, rescue_oversized
@@ -58,8 +58,6 @@ ALWAYS_RERUN = ("compute", "aggregate")   # deterministic and cheap: recomputed 
 
 # A source "found but unreadable": it exists but we could not get its text (vs. dead links / soft 404s).
 UNREADABLE_HTTP = {401, 403, 406, 429, 451, 500, 502, 503, 504}
-_ENERGY_DOC = re.compile(r"impact|sustainab|\besg\b|environment|energy|climate|\bcdp\b|emission|carbon|\bghg\b|"
-                         r"\bgri\b|data[- ]?(?:appendix|table|sheet)|\bkpi", re.IGNORECASE)
 ENERGY_RETRY_TRIGGER = "energy_retry"
 
 
@@ -74,17 +72,22 @@ def source_unreadable(src) -> bool:
     return False
 
 
-def energy_unreadable_sources(db: Session, run_id: int, candidates: list[dict]) -> list[dict]:
-    """Energy-relevant sources of this run that exist but could not be read."""
-    covers = {c.get("url"): set(c.get("covers") or []) for c in candidates or []}
+def energy_unreadable_sources(db: Session, run_id: int, candidates: list[dict],
+                              domain: str | None = None) -> list[dict]:
+    """The company's own energy disclosures in this run that exist but could not be read
+    (rules in app/pipeline/disclosure.py; third-party articles and listing pages never count)."""
+    cand = {c.get("url"): c for c in candidates or []}
     out = []
     for src in db.query(Source).filter(Source.run_id == run_id, Source.origin != "edgar").order_by(Source.id):
         if not source_unreadable(src):
             continue
-        energy = "energy" in covers.get(src.url, set()) or bool(_ENERGY_DOC.search(f"{src.url} {src.title or ''}"))
-        if energy:
+        c = cand.get(src.url) or {}
+        why = energy_disclosure(src.url, src.title or c.get("title"), src.status, c.get("covers") or (),
+                                c.get("why"), domain)
+        if why:
             out.append({"source_id": src.id, "url": src.url, "status": src.status,
-                        "http_status": src.http_status, "reason": (src.reject_reason or "")[:200]})
+                        "http_status": src.http_status, "reason": (src.reject_reason or "")[:200],
+                        "counted_as": why})
     return out
 
 
@@ -880,7 +883,8 @@ def stage_aggregate(ctx: RunContext):
         ok_sources = ctx.db.query(Source).filter(Source.run_id == run.id, Source.status == "ok",
                                                  Source.origin != "edgar").count()
         energy_missing = scores.get("energy_throughput", (None, 0))[0] is None
-        unreadable = energy_unreadable_sources(ctx.db, run.id, ctx.candidates) if energy_missing else []
+        unreadable = (energy_unreadable_sources(ctx.db, run.id, ctx.candidates, ctx.entity.get("domain"))
+                      if energy_missing else [])
         # "No energy figure found" (undisclosed basis) only when no energy source failed to read.
         undisclosed = (ctx.s.energy_undisclosed_rule and energy_missing and not unreadable
                        and ok_sources >= ctx.s.energy_undisclosed_min_sources)

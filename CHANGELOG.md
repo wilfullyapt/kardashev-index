@@ -10,6 +10,22 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.13.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: ranking-eligibility change. Component version: **pipeline-v2.9** (follows PR A, 0.11.0 /
+pipeline-v2.7, and PR B, 0.12.0 / pipeline-v2.8; prompts, weights and rubrics unchanged). PR C of
+`ki-pipeline-issues-2.md`.
+
+### Changed
+- **"Energy source couldn't be read" counts only the company's own disclosure.** An unreadable
+  source leaves the run unranked only if it is on the company's own domain or a disclosure registry
+  (CDP, ResponsibilityReports) and carries an energy-disclosure signal (or is the company's own
+  impact/sustainability page or report PDF). Third-party articles never count; SEC-filings indexes,
+  press releases, news and blog pages count only when their claim is about energy consumption;
+  research's `energy` tag alone is not enough; a `thin` (JavaScript-shell) page needs the signal in its
+  URL or title. Under v2.6, Tesla #23 was unranked by four 403 sources; under these rules only
+  tesla.com/impact counts. Each listed source now says why it counted (`counted_as`).
+
 ## [0.12.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: fetch change. Component version: **pipeline-v2.8** (follows PR A, which takes 0.11.0 /
