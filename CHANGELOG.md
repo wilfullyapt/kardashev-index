@@ -10,6 +10,20 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.8.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: research prompt change. Component version: **prompts-v2.4** (this PR follows #16, which takes
+prompts-v2.3, and #17, which takes 0.7.0 / pipeline-v2.5; pipeline, weights and rubrics unchanged
+here). Bug 1, part 2 of the scoring-bug diagnosis.
+
+### Changed
+- Research prefers smaller equivalents of bulky reports: ESG data tables/databooks, KPI or
+  performance-data appendices, GRI/SASB/TCFD indexes, CDP climate responses, CSV/XLSX downloads and
+  HTML data pages, listed before the full impact report (Tesla's is ~129 MB).
+- Candidate sources are re-ordered in code (`app/pipeline/sources.py`) so compact energy data sources
+  survive the `JUDGE_MAX_SOURCES` cut and are fetched first; bulky full-report PDFs are still fetched
+  when there is room.
+
 ## [0.5.1] - Unreleased (untagged; tag after merge with owner approval)
 
 PATCH: display only. No scoring, ranking or component-version changes

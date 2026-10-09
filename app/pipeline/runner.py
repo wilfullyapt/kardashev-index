@@ -37,6 +37,7 @@ from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
 from .fetch import ARCHIVE_STATUSES, Fetcher, SourceChecker, wayback_fetch
 from .llm import LLM, LLMError, LLMResult, extract_json
+from .sources import rank_candidates
 from .measures import METRIC_LABELS, Figure, canonical_unit, fmt_num, measure_all, to_si
 
 _ENERGY_MAX = 3e12 * 3.15576e7
@@ -370,7 +371,7 @@ def stage_research(ctx: RunContext):
                 seen.add(key)
                 cands.append({"url": url, "title": None, "covers": [], "why": "cited during search",
                               "origin": "citation"})
-        ctx.candidates = cands[: ctx.s.max_sources]
+        ctx.candidates = rank_candidates(cands)[: ctx.s.max_sources]   # compact data sources first
         st.detail.update({"proposed": len(found), "citations": len(res.citations) if res else 0,
                           "kept": len(ctx.candidates)})
         st.cp["candidates"] = ctx.candidates

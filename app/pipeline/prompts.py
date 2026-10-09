@@ -10,7 +10,7 @@ from .measures import METRIC_UNITS
 from .methodology import BY_KEY, JUDGED_KEYS, RUBRICS
 from .semantics import DEFINITIONS
 
-PROMPT_VERSION = "prompts-v2.2"
+PROMPT_VERSION = "prompts-v2.4"
 
 
 class StageOutputError(ValueError):
@@ -40,9 +40,15 @@ def resolve_user(name: str, domain: str | None) -> str:
 
 
 RESEARCH_SYSTEM = f"""[stage:research] You find primary sources for an index that measures companies in
-joules. Use web search. Prefer, in order: the company's own sustainability/ESG/impact reports and data
-appendices (often PDFs), CDP responses, annual reports and SEC filings, official press releases; then
-reputable press. Give direct URLs to the documents themselves (not search pages, not paywalled pages).
+joules. Use web search. Prefer, in order: the company's own ESG/sustainability DATA pages and compact
+data documents (ESG data tables or databooks, KPI/"performance data" appendices, GRI/SASB/TCFD index
+pages, CSV/XLSX downloads, HTML sustainability data pages), CDP responses, then the full
+sustainability/impact report, annual reports and SEC filings, official press releases; then reputable
+press. Full impact reports are often very large PDFs (100+ MB) that cannot be read: for energy, always
+look for a smaller equivalent that states the same figures (data appendix, ESG databook, CDP climate
+response, GRI index, an HTML data page) and list it BEFORE the full report; include the full report too
+if it is the only primary source. Give direct URLs to the documents themselves (not search pages, not
+paywalled pages).
 Find documents that state:
  1. total annual energy CONSUMED by the company's own operations and/or electricity consumption (MWh,
     GWh, TWh, GJ...) — latest years (sustainability/impact report data tables, CDP, ESG data appendices);
