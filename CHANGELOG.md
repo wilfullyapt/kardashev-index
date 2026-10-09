@@ -18,6 +18,27 @@ scored with. Whenever a component version changes, the entry here says so.
   `"status": "degraded"`. A dead or stalled worker still returns 200 (`"status": "degraded"`, worker
   state in the body), so the worker can never cause restarts or failed deploys.
 
+## [0.4.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: new public pages and endpoints. No scoring, ranking or component-version changes
+(pipeline-v2.2, prompts-v2.2, weights-v1, rubrics-v1 unchanged).
+
+### Added
+- `/about`: what the index is, how scores are made (AI-assisted; xAI Grok), a conflict-of-interest
+  disclosure (the scoring model's maker, xAI, is also ranked), not-investment-advice notice and a
+  corrections section.
+- `/privacy`: the actual data practices. No analytics or tracking cookies; a session cookie only
+  for signed-in admins; suggestion form data; IP addresses held in memory only for rate limiting;
+  Render request logs; Google Fonts; xAI API (company data only).
+- Methodology "Disclosures" section: AI assistance, conflict of interest, measured vs opinion share,
+  not investment advice.
+- Measured share of the scored weight is shown next to each Index on the leaderboard
+  ("meas NN%") and in each entity's Index composition. Display only.
+- Footer: not-investment-advice line with the AI/conflict disclosure, and links to About,
+  Corrections and Privacy.
+- `CONTACT_EMAIL` env var: the corrections/privacy contact. When it's unset or invalid, pages show
+  placeholder text instead of an address.
+
 ## [0.3.0] - 2026-10-08
 
 ### Added

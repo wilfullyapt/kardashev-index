@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block title %}About — Kardashev Index{% endblock %}
+{% block description %}What the Kardashev Index is, who runs it, how scores are produced with AI assistance, our conflict-of-interest disclosure, and how to request a correction.{% endblock %}
+
+{% block content %}
+    <p class="eyebrow">About</p>
+    <h1 class="h2" style="margin-top:0">What this is, and what it isn’t.</h1>
+    <p class="lede muted" style="max-width:48rem">The Kardashev Index ranks companies and other entities on a 0–10 scale in Kardashev terms: how much energy and compute they command, how fast that is growing, and — clearly labelled as opinion — how much they push the frontier. It is an independent, experimental project.</p>
+
+    <section class="admin-sec" aria-labelledby="a-how">
+        <h2 id="a-how" class="h3 sec-h">How scores are made</h2>
+        <ul class="criteria">
+            <li><span class="mono">01</span><span><b>Mostly measured.</b> {{ '%.0f'|format(meth.CATEGORIES|selectattr('family', 'equalto', 'measured')|sum(attribute='weight') * 100) }}% of the weight comes from figures companies report about themselves (energy, data-center capacity, capital spending), computed in code. Every figure links to the source page and the verbatim quote it came from.</span></li>
+            <li><span class="mono">02</span><span><b>Opinion, labelled.</b> {{ '%.0f'|format(meth.CATEGORIES|selectattr('family', 'equalto', 'judged')|sum(attribute='weight') * 100) }}% of the weight is editorial judgement scored against <a href="/methodology#m-rubrics">written rubrics</a>, marked “Opinion” wherever it appears.</span></li>
+            <li id="ai"><span class="mono">AI</span><span><b>AI-assisted.</b> An AI model — currently xAI’s Grok (<span class="mono">{{ scoring_model() }}</span>) — searches for sources, copies figures and quotes out of them, and scores the opinion categories. Its output is checked in code (quotes must appear verbatim in pages we fetched; numbers, units and magnitudes are validated) and all arithmetic is done in code. Individual scores are not reviewed by a human before publication; admins approve which entities are listed and can re-run them.</span></li>
+            <li><span class="mono">%</span><span><b>Measured vs opinion share.</b> Because missing data is never filled in, the share of a given entity’s score that is measured can differ from the nominal split. The leaderboard and each entity page show the measured share of what was actually scored.</span></li>
+        </ul>
+        <p class="dim">Full details: <a href="/methodology">methodology</a>.</p>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="a-coi">
+        <h2 id="a-coi" class="h3 sec-h">Conflict-of-interest disclosure</h2>
+        <p class="muted" style="max-width:48rem">The scoring model is made by <b>xAI</b>, and xAI is itself one of the entities ranked here. To limit the effect: measured categories are computed in code from quoted, verified figures, not from the model’s opinion; opinion categories must cite verified quotes and follow the same rubrics for every entity; and every score shows its sources and rationale so you can check it. You should still read xAI’s placement — and that of its competitors — with this in mind. The project receives no payment from any ranked entity.</p>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="a-nia">
+        <h2 id="a-nia" class="h3 sec-h">Not investment advice</h2>
+        <p class="muted" style="max-width:48rem">Nothing on this site is financial, investment, legal or other professional advice, or a recommendation to buy or sell any security. Scores are an experimental, partly AI-generated assessment and may be incomplete, out of date or wrong. Do your own research.</p>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="a-corrections" id="corrections">
+        <h2 id="a-corrections" class="h3 sec-h">Corrections</h2>
+        <p class="muted" style="max-width:48rem">If a figure, quote or source is wrong — including on your own company’s page — tell us which entity and what is wrong, ideally with a link to a primary source: {% include "partials/_contact.html" %}. Confirmed errors are fixed by correcting the data and re-running the entity; every run is kept and its date is shown on the entity page.</p>
+        <p class="dim">Want an entity added? Use <a href="/suggest">Suggest an entity</a>.</p>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="a-more">
+        <h2 id="a-more" class="h3 sec-h">More</h2>
+        <p class="muted">How we handle data: <a href="/privacy">privacy</a>. Service status: <a href="/health">/health</a>.</p>
+    </section>
+{% endblock %}

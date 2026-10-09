@@ -1,0 +1,2 @@
+{%- set _email = contact_email() -%}
+{%- if _email -%}<a href="mailto:{{ _email }}">{{ _email }}</a>{%- else -%}<span class="dim">{{ contact_placeholder }}</span>{%- endif -%}
