@@ -7,8 +7,8 @@ How changes reach production, how versions are chosen and how to roll back.
   https://kardashev-index.onrender.com.
 - All work goes through a short-lived branch (`feat/…`, `fix/…`, `chore/…`, `docs/…`) and a pull
   request. Direct pushes to `main` are blocked by the `main` ruleset.
-- Before a PR can merge, the required checks (`lint`, `test`) must pass and the branch must be up to
-  date with `main`.
+- Before a PR can merge, the required checks (`lint`, `test`, `test-postgres`, `version-check`) must
+  pass and the branch must be up to date with `main` (strict).
 - **Squash merge only.** One PR becomes one commit on `main`, and its title follows Conventional
   Commits (`feat: …`, `fix: …`, `chore: …`). History stays linear (enforced).
 - PRs that change nothing the running app uses (docs, CI, dev tooling) may put `[skip render]` in
@@ -53,7 +53,8 @@ The scoring components have their own versions, which are recorded on every run:
 | `PROMPT_VERSION` | `app/pipeline/prompts.py` | any prompt text or output schema changes |
 
 ### Choosing the app version bump
-While we are on `0.y.z`, a MINOR bump is used where 1.x would need a MAJOR one.
+Before 1.0.0, a MINOR bump was used where 1.x needs a MAJOR one. From **1.0.0** (the public launch
+baseline) standard SemVer applies: the MAJOR row below means a MAJOR bump.
 
 | Change | Bump |
 |---|---|

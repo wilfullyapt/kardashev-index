@@ -10,6 +10,39 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.0.0] — Public launch baseline
+
+Unreleased (untagged; to be tagged `v1.0.0` after merge, with owner approval). No functional change
+from 0.15.0: same pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1, migrations 0001–0007.
+From 1.0.0, standard SemVer applies: breaking changes to `/internal/*`, the `/health` contract or
+non-backward-compatible migrations are MAJOR (see docs/RELEASING.md).
+
+### Added
+- `HANDOFF.md`: operating manual for a new owner or operator (architecture, deploys, every
+  environment variable, operations, costs, licensing, launch checklist, known limitations, accounts
+  to transfer). Linked from the README.
+
+### Pre-1.0 summary (details in the entries below; history kept as written)
+- **0.1**: public leaderboard and company pages, suggestions, admin approve/deny, Postgres via Alembic.
+- **0.2**: measured + judged v2 pipeline with verified figures and SEC EDGAR, DB-backed in-process
+  worker, run history and admin run views, reliability (checkpoints, retries, fetch fallbacks).
+- **0.3**: release process: SemVer in `app/version.py`, this changelog, RELEASING.md, the
+  `version-check` and `test-postgres` CI jobs, Python 3.12.15 pinned, protected `main`, CI-gated
+  Render deploys.
+- **0.4**: `/about`, `/privacy`, disclosures, `CONTACT_EMAIL`, `PUBLIC_BASE_URL` canonical host,
+  robots.txt and sitemap, security headers, login throttle, dependency upgrades.
+- **0.5**: licensing (MIT code; CC BY 4.0 data from v0.5.0) and the ranking quality gate
+  (pipeline-v2.3); 0.5.1 shows unranked runs without a numeric Index.
+- **0.6–0.9**: scoring fixes: future capacity is not counted as operating (0.6), "energy source
+  couldn't be read" keeps a run unranked with a retry (0.7), compact energy data sources are
+  preferred (0.8), over-cap PDFs are read in a capped child process and unlabelled energy rows are
+  ambiguous (0.9).
+- **0.10**: admin retraction, newer-pipeline-wins, current run computed at read time.
+- **0.11–0.13**: a Wayback fallback that works (CDX, block pages, rate limits, attempts recorded),
+  report-PDF discovery, and a tighter energy-unreadable rule (own disclosure only).
+- **0.14**: immediate nudged re-ask on empty extraction; `/health` `queued_now` / `scheduled`.
+- **0.15**: data license CC BY-NC 4.0 from 0.15.0; earlier CC BY 4.0 grants (v0.5.0–v0.14.0) stand.
+
 ## [0.15.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: data-license change (what users may do with published content changes, so not a PATCH copy
