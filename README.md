@@ -61,6 +61,11 @@ Render (`render.yaml`): build runs `alembic upgrade head`; single uvicorn worker
 `XAI_API_KEY`, `HERMES_API_KEY`, `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH` and
 `SEC_EDGAR_USER_AGENT`. Other knobs are listed in [`docs/API.md`](docs/API.md#configuration-environment).
 
+## Handoff
+
+New owner or operator? Start with [HANDOFF.md](HANDOFF.md): architecture, deploys, every environment
+variable, operations, costs, licensing, the launch checklist and accounts to transfer.
+
 ## License
 
 - **Code:** [MIT](LICENSE), Copyright (c) 2026 Wil Mawhinney.
