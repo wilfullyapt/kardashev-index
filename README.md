@@ -64,7 +64,10 @@ Render (`render.yaml`): build runs `alembic upgrade head`; single uvicorn worker
 ## License
 
 - **Code:** [MIT](LICENSE), Copyright (c) 2026 Wil Mawhinney.
-- **Scores, data and methodology text:** [CC BY 4.0](DATA-LICENSE.md)
-  ([legal code](https://creativecommons.org/licenses/by/4.0/legalcode)). Credit
-  "Kardashev Index" and link to the site. Quotes and figures from company sources stay with their publishers.
+- **Scores, data and methodology text:** [CC BY-NC 4.0](DATA-LICENSE.md)
+  ([legal code](https://creativecommons.org/licenses/by-nc/4.0/legalcode)) from v0.15.0 onward.
+  Credit "Kardashev Index" and link to the site. Commercial use, bulk or automated access and resale
+  need a separate license (contact on the site's About page). Content published by v0.5.0–v0.14.0
+  was CC BY 4.0, and those grants stand. Quotes and figures from company sources stay with their
+  publishers.
 - **Third-party assets** (htmx, Google Fonts) and project images: see [NOTICE.md](NOTICE.md).
