@@ -10,6 +10,21 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [0.15.0] - Unreleased (untagged; tag after merge with owner approval)
+
+MINOR: data-license change (what users may do with published content changes, so not a PATCH copy
+tweak; see docs/RELEASING.md). No component version changes (pipeline-v2.9, prompts-v2.5,
+weights-v1, rubrics-v1); no migration. Code stays MIT.
+
+### Changed
+- **Data license: CC BY 4.0 → CC BY-NC 4.0** for scores, data and methodology text published from
+  0.15.0 onward ([legal code](https://creativecommons.org/licenses/by-nc/4.0/legalcode)). Content
+  published by v0.5.0–v0.14.0 was CC BY 4.0; those grants are irrevocable and stand. Commercial use,
+  bulk or automated access and resale need a separate license (contact via `CONTACT_EMAIL`, or the
+  placeholder until it is set). Facts and figures quoted from company sources are not covered.
+  Updated: `DATA-LICENSE.md`, README, NOTICE, the site footer ("Scores CC BY-NC 4.0 · Code MIT ·
+  Commercial licensing") and `/about#license` (with `#earlier-license` and `#commercial-licensing`).
+
 ## [0.14.0] - Unreleased (untagged; tag after merge with owner approval)
 
 MINOR: extraction retry behaviour and `/health` fields. Component version: **prompts-v2.5** (pipeline,

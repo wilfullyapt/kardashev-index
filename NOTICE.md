@@ -3,7 +3,8 @@
 Kardashev Index. Copyright (c) 2026 Wil Mawhinney.
 
 - **Code:** MIT. See [`LICENSE`](LICENSE).
-- **Scores, data and methodology text:** CC BY 4.0. See [`DATA-LICENSE.md`](DATA-LICENSE.md).
+- **Scores, data and methodology text:** CC BY-NC 4.0 from v0.15.0 (CC BY 4.0 for content published by
+  v0.5.0–v0.14.0). See [`DATA-LICENSE.md`](DATA-LICENSE.md).
 
 ## Third-party assets used by the site
 
