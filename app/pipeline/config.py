@@ -37,13 +37,30 @@ class Settings:
     fetch_timeout_s: float = field(default_factory=lambda: _f("FETCH_TIMEOUT_S", 20))
     fetch_max_bytes: int = field(default_factory=lambda: _i("FETCH_MAX_BYTES", 30_000_000))
     fetch_retries: int = field(default_factory=lambda: _i("FETCH_RETRIES", 2))
+    # Header profile (1.7.0): "honest_first" asks as the declared KardashevIndexBot first and retries
+    # once with browser headers on 401/403/406, remembering per host what worked; "browser" = before 1.7.0.
+    fetch_ua_strategy: str = field(default_factory=lambda: os.getenv("FETCH_UA_STRATEGY", "honest_first").strip().lower())
+    fetch_bot_user_agent: str | None = field(default_factory=lambda: os.getenv("FETCH_BOT_USER_AGENT") or None)
     # Wayback Machine fallback for sources that answer 401/403/404/410/451 (labelled "archived copy").
     wayback_enabled: bool = field(default_factory=lambda: _b("FETCH_WAYBACK", True))
     # Cap on archive.org requests (CDX lookups + copies) per run; the fallback stops early on 429/outage.
     wayback_max_requests: int = field(default_factory=lambda: _i("FETCH_WAYBACK_MAX_REQUESTS", 16))
+    # archive.org pacing/backoff (1.7.0): seconds between archive requests (shared by all runs), backoff
+    # retries on 429/5xx (Retry-After honoured up to the cap), pause-and-probe cycles before the breaker
+    # opens for the run, the pause when no Retry-After is sent, and a daily cap on real requests (0 = off).
+    wayback_min_interval_s: float = field(default_factory=lambda: _f("FETCH_WAYBACK_MIN_INTERVAL_S", 1.5))
+    wayback_retries: int = field(default_factory=lambda: _i("FETCH_WAYBACK_RETRIES", 2))
+    wayback_retry_after_cap_s: float = field(default_factory=lambda: _f("FETCH_WAYBACK_RETRY_AFTER_CAP_S", 120))
+    wayback_resumes: int = field(default_factory=lambda: _i("FETCH_WAYBACK_RESUMES", 1))
+    wayback_pause_s: float = field(default_factory=lambda: _f("FETCH_WAYBACK_PAUSE_S", 60))
+    wayback_daily_max: int = field(default_factory=lambda: _i("FETCH_WAYBACK_DAILY_MAX", 400))
     # Report-PDF discovery: PDF links followed from readable report pages (per page / per run; 0 = off).
     discover_per_page: int = field(default_factory=lambda: _i("FETCH_DISCOVER_PER_PAGE", 2))
     discover_max: int = field(default_factory=lambda: _i("FETCH_DISCOVER_MAX", 4))
+    # Alternative sources (1.7.0): the latest 10-K/20-F text from SEC EDGAR as a candidate, and a
+    # ResponsibilityReports.com lookup when no energy source could be read from the company itself.
+    edgar_annual_report: bool = field(default_factory=lambda: _b("EDGAR_ANNUAL_REPORT", True))
+    registry_fallback: bool = field(default_factory=lambda: _b("FETCH_REGISTRY_FALLBACK", True))
     # Stored source text. Large enough that a resumed run re-verifies quotes against the full document.
     snapshot_max_chars: int = field(default_factory=lambda: _i("SNAPSHOT_MAX_CHARS", 1_000_000))
     extract_max_chars: int = field(default_factory=lambda: _i("EXTRACT_MAX_CHARS", 64_000))
@@ -66,10 +83,17 @@ class Settings:
     energy_undisclosed_min_sources: int = field(default_factory=lambda: _i("RANK_ENERGY_UNDISCLOSED_MIN_SOURCES", 3))
     # pipeline-v2.4: an energy source that was found but could not be read (too large, unparseable,
     # 403/429/5xx, timeout, no text layer) makes the run "energy couldn't be read": unranked, admin
-    # alert, and one automatic retry ENERGY_RETRY_DELAY_HOURS later (at most ENERGY_RETRY_MAX in a row).
+    # alert, and automatic retries after ENERGY_RETRY_DELAYS_HOURS (at most ENERGY_RETRY_MAX in a row).
+    # Defer instead of publish (1.7.0): when the energy disclosure (or every source) failed only for
+    # transient reasons, re-queue the run via the RUN_RETRY_DELAYS_MIN path; the final attempt completes.
+    defer_transient_fetch: bool = field(default_factory=lambda: _b("FETCH_DEFER_TRANSIENT", True))
     energy_retry_enabled: bool = field(default_factory=lambda: _b("ENERGY_RETRY_ENABLED", True))
     energy_retry_delay_hours: float = field(default_factory=lambda: _f("ENERGY_RETRY_DELAY_HOURS", 24.0))
-    energy_retry_max: int = field(default_factory=lambda: _i("ENERGY_RETRY_MAX", 1))
+    energy_retry_max: int = field(default_factory=lambda: _i("ENERGY_RETRY_MAX", 3))
+    # Escalating delays (1.7.0): retry n waits the n-th value (the last repeats). Unset: 6,24,72 unless
+    # ENERGY_RETRY_DELAY_HOURS is set, which then applies to every retry (the pre-1.7.0 setting).
+    energy_retry_delays_hours: tuple = field(default_factory=lambda: _delays(
+        os.getenv("ENERGY_RETRY_DELAYS_HOURS") or os.getenv("ENERGY_RETRY_DELAY_HOURS") or "6,24,72"))
     rank_min_coverage: float = field(default_factory=lambda: _f("RANK_MIN_COVERAGE", 0.60))
     rank_min_measured: float = field(default_factory=lambda: _f("RANK_MIN_MEASURED", 0.30))
     # Quality gate on top of coverage (pipeline-v2.3): ranked only if measured share of the scored

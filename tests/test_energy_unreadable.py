@@ -79,7 +79,7 @@ def test_unreadable_energy_source_keeps_run_unranked_alerts_and_schedules_retry(
                                          JudgmentRun.trigger == ENERGY_RETRY_TRIGGER).one()
     assert retry.status == "queued" and retry.next_attempt_at is not None
     delay = retry.next_attempt_at.replace(tzinfo=None) - run.finished_at.replace(tzinfo=None)
-    assert timedelta(hours=23) < delay < timedelta(hours=25)
+    assert timedelta(hours=5) < delay < timedelta(hours=7)        # first escalating delay: 6 h
     a = alerts.collect(db)
     assert [x["run_id"] for x in a["energy_unreadable"]] == [run.id]
     assert retry.id in [x["run_id"] for x in a["retrying"]]
@@ -110,7 +110,7 @@ def test_retry_is_bounded_and_manual_rerun_pulls_it_forward(db):
     same, created = enqueue_run(db, c.id, trigger="admin_rerun", triggered_by="admin@x")
     assert not created and same.id == retry.id and same.next_attempt_at is None
     llm2, routes2 = _world((403, "text/html", "denied"))
-    second = execute_run(db, retry.id, fakes.make_deps(llm2, routes=routes2))
+    second = execute_run(db, retry.id, fakes.make_deps(llm2, routes=routes2, energy_retry_max=1))
     assert second.summary["rank_basis"] == "energy_unreadable"
     # ENERGY_RETRY_MAX=1: the retry itself does not schedule another
     assert db.query(JudgmentRun).filter(JudgmentRun.trigger == ENERGY_RETRY_TRIGGER).count() == 1
@@ -143,7 +143,7 @@ def test_reason_states_the_queued_retry_time(db):
     _c, run = _run(db, llm, routes)
     retry = db.query(JudgmentRun).filter(JudgmentRun.trigger == ENERGY_RETRY_TRIGGER).one()
     reason = run.summary["not_ranked_reason"]
-    assert "retry scheduled for " in reason and reason.endswith(" PT")
+    assert "retry scheduled for " in reason and " PT" in reason
     assert run.summary["energy_retry_run_id"] == retry.id
     assert run.rank_reason == reason
 
@@ -155,7 +155,7 @@ def test_reason_says_no_retry_when_limit_reached(db):
     retry.next_attempt_at = None
     db.commit()
     llm2, routes2 = _world((403, "text/html", "denied"))
-    second = execute_run(db, retry.id, fakes.make_deps(llm2, routes=routes2))
+    second = execute_run(db, retry.id, fakes.make_deps(llm2, routes=routes2, energy_retry_max=1))
     reason = second.summary["not_ranked_reason"]
     assert "retry scheduled" not in reason and "no automatic retry queued" in reason
     assert second.summary["energy_retry_run_id"] is None

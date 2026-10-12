@@ -217,8 +217,13 @@ All optional; Default (not in `render.yaml`).
 |---|---|---|
 | `SEC_EDGAR_USER_AGENT` | contact string sent to sec.gov (SEC requires it); without it EDGAR is skipped and admin shows an alert. **Set** (Render secret; `/health` reports `sec_edgar_user_agent: true`) | none |
 | `FETCH_TIMEOUT_S` / `FETCH_MAX_BYTES` / `FETCH_RETRIES` | per-request timeout, download cap, retries | `20` / `30000000` / `2` |
+| `FETCH_UA_STRATEGY` / `FETCH_BOT_USER_AGENT` | `honest_first`: declared bot first, browser headers once on 401/403/406, per-host memory (`browser` = pre-1.7.0); bot User-Agent string | `honest_first` / `KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)` |
 | `FETCH_WAYBACK` / `FETCH_WAYBACK_MAX_REQUESTS` | Wayback fallback on/off; archive.org requests per run | `1` / `16` |
+| `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | archive.org pacing (seconds between requests, all runs), backoff retries on 429/5xx, longest `Retry-After` honoured | `1.5` / `2` / `120` |
+| `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | pause-and-probe cycles before the run's breaker opens; pause without `Retry-After`; real archive.org requests per day (`0` = off) | `1` / `60` / `400` |
+| `FETCH_DEFER_TRANSIENT` | defer a run instead of finishing it when the energy disclosure (or every source) failed only transiently; final attempt completes as before | `1` |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | report PDFs followed per page / per run (`0` = off) | `2` / `4` |
+| `EDGAR_ANNUAL_REPORT` / `FETCH_REGISTRY_FALLBACK` | latest 10-K/20-F text from SEC as a source; ResponsibilityReports.com report when no energy source could be read | `1` / `1` |
 | `SNAPSHOT_MAX_CHARS` | fetched text stored per source | `1000000` |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | text sent to extraction in total / per source | `64000` / `20000` |
 | `LARGE_PDF_ENABLED` | read over-cap PDFs in a capped child process | `1` |
@@ -234,7 +239,7 @@ All optional; Default (not in `render.yaml`).
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | ranking gates | `0.6` / `0.3` |
 | `RANK_MIN_MEASURED_SHARE` / `RANK_MIN_CONFIDENCE` | quality gates (strictly above) | `0.4` / `0.2` |
 | `RANK_ENERGY_UNDISCLOSED` / `RANK_ENERGY_UNDISCLOSED_MIN_SOURCES` | rank on the remaining 70% when no energy figure is disclosed | `1` / `3` |
-| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAY_HOURS` / `ENERGY_RETRY_MAX` | energy-unreadable follow-up run (paid) | `1` / `24` / `1` |
+| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAYS_HOURS` / `ENERGY_RETRY_MAX` | energy-unreadable follow-up runs (paid), escalating delays, a different fetch strategy each time (`ENERGY_RETRY_DELAY_HOURS` still honoured when the plural is unset) | `1` / `6,24,72` / `3` |
 
 ### Worker, retries, daily sweep, alerts
 
@@ -246,6 +251,7 @@ All optional; Default (not in `render.yaml`).
 | `SWEEP_ENABLED` / `SWEEP_HOUR_UTC` / `SWEEP_MIN_AGE_DAYS` | daily re-run of withheld / unranked companies (paid) | `1` / `10` (03:00 PDT) / `7` |
 | `SWEEP_DAILY_COST_USD` / `SWEEP_EST_RUN_USD` | daily sweep spend cap; per-run estimate | `2.0` / `0.35` |
 | `ALERT_WEBHOOK_URL` | Slack-compatible JSON webhook for failed / degraded / stuck runs. In Blueprint as a Render secret but **not set** (`/health` reports `alert_webhook: false`) | none |
+| `OBS_CACHE_S` / `OBS_WINDOW_DAYS` | `/health` observability cache lifetime (s) and window (days) for run outcomes and failing hosts | `60` / `7` |
 
 ### Local / test only
 
@@ -279,7 +285,7 @@ All optional; Default (not in `render.yaml`).
   - See [docs/API.md](docs/API.md).
 - **Daily sweep**: after 10:00 UTC, once a day, it re-queues withheld or not-ranked current runs older
   than 7 days, within `SWEEP_DAILY_COST_USD` ($2.00/day by default, estimated at $0.35 per run).
-- **Energy retry**: one automatic follow-up run 24 h after an energy-unreadable run (`ENERGY_RETRY_MAX=1`).
+- **Energy retry**: up to three automatic follow-up runs after an energy-unreadable run, 6 h, 24 h and 72 h apart (`ENERGY_RETRY_MAX=3`, `ENERGY_RETRY_DELAYS_HOURS`), trying the unreadable document via Wayback first, then with browser headers, then normally.
 - **Cost per run**: about **$0.08–0.10 observed**. Hard cap **$0.40** per run (`JUDGE_MAX_COST_USD`),
   checked before every paid call. Every stage's tokens and cost are stored on the run.
 - **xAI spend limit**: set a monthly spending limit in the xAI console as the backstop to the per-run
@@ -288,6 +294,8 @@ All optional; Default (not in `render.yaml`).
   means the worker has stalled). Provider and account: **(unknown, owner to fill)**.
 - **/health** fields: `version`, `pipeline_version`, `prompt_version`, `code_version`, and
   `worker.{alive, queued_now, scheduled, next_scheduled_at, queue_depth, last_run}`.
+  From 1.7.0 also `observability.{runs_7d, hosts_7d, retry_claims_without_queued_run, archive}`
+  (cached 60 s; see docs/API.md). A non-empty `retry_claims_without_queued_run` is a bug to report.
 
 ## 9. Monthly costs
 
