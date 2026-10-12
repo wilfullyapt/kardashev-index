@@ -10,6 +10,29 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.6.0] — Escalating energy retries with a different strategy each time
+
+**Component change: pipeline-v2.11 → pipeline-v2.12** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking rules are unchanged; energy retries fetch differently.
+
+### Changed
+- Energy-unreadable retries (`app/pipeline/runner.py` `schedule_energy_retry`): up to
+  `ENERGY_RETRY_MAX` = **3** (was 1) consecutive retries, waiting `ENERGY_RETRY_DELAYS_HOURS` =
+  **6, 24, 72 h** (was a fixed 24 h). Each retry carries the previous run's unreadable URLs (tried
+  again even if research doesn't list them) and a strategy: 1st `archive_first` (Wayback copy
+  before the origin), 2nd `browser_first` (browser headers first), 3rd `standard`. The plan is kept
+  in the retry's checkpoint and logged on `energy_retry_scheduled`.
+- The public reason names the retry ("retry scheduled for Oct 13, 15:00 PT (automatic retry 1)");
+  the methodology page describes the escalation from the live settings.
+
+### Added
+- `ENERGY_RETRY_DELAYS_HOURS` (default `6,24,72`). `ENERGY_RETRY_DELAY_HOURS` still works: when set
+  and the plural isn't, it applies to every retry. Set `ENERGY_RETRY_MAX=1` to restore one retry.
+
+### Cost
+- Each retry is a normal paid run (~$0.35, `SWEEP_EST_RUN_USD`): at most ~$1.05 per company per
+  energy-unreadable episode (was ~$0.35). Retries do not count against the daily sweep cap.
+
 ## [1.5.0] — Defer instead of publish when sources fail only transiently
 
 **Component change: pipeline-v2.10 → pipeline-v2.11** (prompts-v2.5, weights-v1, rubrics-v1

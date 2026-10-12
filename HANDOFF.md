@@ -238,7 +238,7 @@ All optional; Default (not in `render.yaml`).
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | ranking gates | `0.6` / `0.3` |
 | `RANK_MIN_MEASURED_SHARE` / `RANK_MIN_CONFIDENCE` | quality gates (strictly above) | `0.4` / `0.2` |
 | `RANK_ENERGY_UNDISCLOSED` / `RANK_ENERGY_UNDISCLOSED_MIN_SOURCES` | rank on the remaining 70% when no energy figure is disclosed | `1` / `3` |
-| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAY_HOURS` / `ENERGY_RETRY_MAX` | energy-unreadable follow-up run (paid) | `1` / `24` / `1` |
+| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAYS_HOURS` / `ENERGY_RETRY_MAX` | energy-unreadable follow-up runs (paid), escalating delays, a different fetch strategy each time (`ENERGY_RETRY_DELAY_HOURS` still honoured when the plural is unset) | `1` / `6,24,72` / `3` |
 
 ### Worker, retries, daily sweep, alerts
 
@@ -284,7 +284,7 @@ All optional; Default (not in `render.yaml`).
   - See [docs/API.md](docs/API.md).
 - **Daily sweep**: after 10:00 UTC, once a day, it re-queues withheld or not-ranked current runs older
   than 7 days, within `SWEEP_DAILY_COST_USD` ($2.00/day by default, estimated at $0.35 per run).
-- **Energy retry**: one automatic follow-up run 24 h after an energy-unreadable run (`ENERGY_RETRY_MAX=1`).
+- **Energy retry**: up to three automatic follow-up runs after an energy-unreadable run, 6 h, 24 h and 72 h apart (`ENERGY_RETRY_MAX=3`, `ENERGY_RETRY_DELAYS_HOURS`), trying the unreadable document via Wayback first, then with browser headers, then normally.
 - **Cost per run**: about **$0.08–0.10 observed**. Hard cap **$0.40** per run (`JUDGE_MAX_COST_USD`),
   checked before every paid call. Every stage's tokens and cost are stored on the run.
 - **xAI spend limit**: set a monthly spending limit in the xAI console as the backstop to the per-run

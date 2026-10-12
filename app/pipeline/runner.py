@@ -38,7 +38,7 @@ from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
 from .disclosure import classify as energy_disclosure
 from .discover import is_report_page, pick, report_links
-from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
+from .fetch import ARCHIVE_STATUSES, BROWSER_HEADERS, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
 from .largepdf import read_large_pdf, rescue_oversized
 from .llm import LLM, LLMError, LLMResult, extract_json
 from .sources import rank_candidates
@@ -489,8 +489,23 @@ def _discover(ctx: RunContext, results) -> list[dict]:
     return out
 
 
+def _retry_plan(ctx: RunContext) -> tuple[str | None, set[str]]:
+    """An energy retry's fetch strategy and the previously unreadable URLs it must try again."""
+    cp = ctx.run.checkpoint or {}
+    return cp.get("strategy"), set(cp.get("retry_urls") or [])
+
+
 def stage_fetch(ctx: RunContext):
     with ctx.stage("fetch") as st:
+        strategy, retry_urls = _retry_plan(ctx)
+        if retry_urls:
+            # The documents that couldn't be read last time are tried again even if research
+            # doesn't return them this time.
+            known = {c["url"] for c in ctx.candidates}
+            for u in sorted(retry_urls - known):
+                ctx.candidates.append({"url": u, "title": None, "covers": ["energy"], "origin": "retry",
+                                       "why": "energy source that couldn't be read in the previous run"})
+            st.detail["retry_strategy"] = {"strategy": strategy, "urls": sorted(retry_urls)}
         if not ctx.candidates:
             st.skip("no candidate sources")
             return
@@ -514,7 +529,15 @@ def stage_fetch(ctx: RunContext):
             return a
 
         def work(c):
-            res = ctx.deps.fetcher.get(c["url"])
+            retrying = c["url"] in retry_urls
+            if retrying and strategy == "archive_first" and wb is not None:
+                arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
+                if arch is not None:
+                    return c, arch, aa, None, att
+            if retrying and strategy == "browser_first":
+                res = ctx.deps.fetcher.get(c["url"], headers=dict(BROWSER_HEADERS))
+            else:
+                res = ctx.deps.fetcher.get(c["url"])
             a = accept(c["url"], res)
             if a.status != "ok" and wb is not None and res.status in ARCHIVE_STATUSES:
                 arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
@@ -556,7 +579,9 @@ def stage_fetch(ctx: RunContext):
             if res.archived_from:
                 src.archive_url = res.final_url
                 src.archive_timestamp = res.archive_timestamp
-                src.reject_reason = f"original answered HTTP {original.status}; using the Wayback Machine copy"
+                src.reject_reason = (f"original answered HTTP {original.status}; using the Wayback Machine copy"
+                                     if original is not None else
+                                     "energy retry (archive first): using the Wayback Machine copy")
                 archived.append(c["url"])
             ctx.db.add(src)
             ctx.db.flush()
@@ -1107,7 +1132,9 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
             db.query(model).filter(model.run_id == run_id).delete(synchronize_session=False)
     else:
         reset_artifacts(db, run_id)
-        run.checkpoint = {"v": meth.PIPELINE_VERSION, "done": []}
+        # an energy retry's plan (strategy, URLs to try again) survives the fresh start
+        run.checkpoint = {"v": meth.PIPELINE_VERSION, "done": [],
+                          **{k: cp[k] for k in RETRY_PLAN_KEYS if k in cp}}
         for col in ("input_tokens", "output_tokens", "reasoning_tokens", "tool_calls"):
             setattr(run, col, 0)
         run.cost_usd = 0.0
@@ -1205,18 +1232,27 @@ def retry_note(retry: JudgmentRun | None, enabled: bool) -> str:
     """What the public reason says about a follow-up run: only what is actually queued."""
     if retry is not None and retry.next_attempt_at is not None:
         when = _utc(retry.next_attempt_at).astimezone(PT)
-        return f"retry scheduled for {when:%b} {when.day}, {when:%H:%M} PT"
+        n = (retry.checkpoint or {}).get("retry_number")
+        return f"retry scheduled for {when:%b} {when.day}, {when:%H:%M} PT" + (f" (automatic retry {n})" if n else "")
     if not enabled:
         return "automatic retries are off"
     return "no automatic retry queued (retry limit reached); the daily sweep re-checks it later"
 
 
-def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | None:
-    """Queue one follow-up run ENERGY_RETRY_DELAY_HOURS from now (worker waits for next_attempt_at).
+RETRY_PLAN_KEYS = ("strategy", "retry_urls", "retry_of", "retry_number")
+# Each energy retry fetches the unreadable documents differently, so a deterministic block isn't
+# simply repeated: Wayback copy first, then browser headers first, then the normal order again.
+ENERGY_RETRY_STRATEGIES = ("archive_first", "browser_first", "standard")
 
-    Bounded: disabled by ENERGY_RETRY_ENABLED=0; at most ENERGY_RETRY_MAX consecutive retries per
-    company (counted over its latest runs); never when another run is already active. Each retry is
-    a normal (paid, ~SWEEP_EST_RUN_USD) run."""
+
+def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | None:
+    """Queue a follow-up run after an energy-unreadable run (worker waits for next_attempt_at).
+
+    Escalating (1.6.0): retry n waits ENERGY_RETRY_DELAYS_HOURS[n] (default 6, 24, 72 h) and uses
+    ENERGY_RETRY_STRATEGIES[n]; the unreadable URLs are carried over and tried again.
+    Bounded: disabled by ENERGY_RETRY_ENABLED=0; at most ENERGY_RETRY_MAX (default 3) consecutive
+    retries per company (counted over its latest runs); never when another run is already active.
+    Each retry is a normal (paid, ~SWEEP_EST_RUN_USD) run."""
     s = deps.settings
     if not s.energy_retry_enabled or s.energy_retry_max <= 0:
         return None
@@ -1235,9 +1271,15 @@ def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | 
                          details={"run_id": run.id, "reason": f"{streak} energy retries in a row (max {s.energy_retry_max})"}))
         db.commit()
         return None
+    delays = s.energy_retry_delays_hours or (s.energy_retry_delay_hours,)
+    hours = delays[min(streak, len(delays) - 1)]
+    strategy = ENERGY_RETRY_STRATEGIES[streak % len(ENERGY_RETRY_STRATEGIES)]
+    urls = [u["url"] for u in ((run.summary or {}).get("energy_unreadable") or []) if u.get("url")]
     retry = JudgmentRun(company_id=run.company_id, status="queued", trigger=ENERGY_RETRY_TRIGGER,
                         triggered_by="system", attempt=0,
-                        next_attempt_at=deps.now() + timedelta(hours=s.energy_retry_delay_hours))
+                        next_attempt_at=deps.now() + timedelta(hours=hours),
+                        checkpoint={"v": meth.PIPELINE_VERSION, "done": [], "strategy": strategy,
+                                    "retry_urls": urls[:10], "retry_of": run.id, "retry_number": streak + 1})
     db.add(retry)
     try:
         db.commit()
@@ -1245,7 +1287,8 @@ def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | 
         db.rollback()
         return None
     db.add(IngestLog(company_id=run.company_id, action="energy_retry_scheduled", admin_id="system",
-                     details={"run_id": run.id, "retry_run_id": retry.id,
+                     details={"run_id": run.id, "retry_run_id": retry.id, "strategy": strategy,
+                              "retry_number": streak + 1, "max": s.energy_retry_max,
                               "next_attempt_at": retry.next_attempt_at.isoformat()}))
     db.commit()
     return retry

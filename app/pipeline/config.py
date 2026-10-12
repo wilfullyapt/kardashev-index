@@ -79,13 +79,17 @@ class Settings:
     energy_undisclosed_min_sources: int = field(default_factory=lambda: _i("RANK_ENERGY_UNDISCLOSED_MIN_SOURCES", 3))
     # pipeline-v2.4: an energy source that was found but could not be read (too large, unparseable,
     # 403/429/5xx, timeout, no text layer) makes the run "energy couldn't be read": unranked, admin
-    # alert, and one automatic retry ENERGY_RETRY_DELAY_HOURS later (at most ENERGY_RETRY_MAX in a row).
+    # alert, and automatic retries after ENERGY_RETRY_DELAYS_HOURS (at most ENERGY_RETRY_MAX in a row).
     # Defer instead of publish (1.5.0): when the energy disclosure (or every source) failed only for
     # transient reasons, re-queue the run via the RUN_RETRY_DELAYS_MIN path; the final attempt completes.
     defer_transient_fetch: bool = field(default_factory=lambda: _b("FETCH_DEFER_TRANSIENT", True))
     energy_retry_enabled: bool = field(default_factory=lambda: _b("ENERGY_RETRY_ENABLED", True))
     energy_retry_delay_hours: float = field(default_factory=lambda: _f("ENERGY_RETRY_DELAY_HOURS", 24.0))
-    energy_retry_max: int = field(default_factory=lambda: _i("ENERGY_RETRY_MAX", 1))
+    energy_retry_max: int = field(default_factory=lambda: _i("ENERGY_RETRY_MAX", 3))
+    # Escalating delays (1.6.0): retry n waits the n-th value (the last repeats). Unset: 6,24,72 unless
+    # ENERGY_RETRY_DELAY_HOURS is set, which then applies to every retry (the pre-1.6.0 setting).
+    energy_retry_delays_hours: tuple = field(default_factory=lambda: _delays(
+        os.getenv("ENERGY_RETRY_DELAYS_HOURS") or os.getenv("ENERGY_RETRY_DELAY_HOURS") or "6,24,72"))
     rank_min_coverage: float = field(default_factory=lambda: _f("RANK_MIN_COVERAGE", 0.60))
     rank_min_measured: float = field(default_factory=lambda: _f("RANK_MIN_MEASURED", 0.30))
     # Quality gate on top of coverage (pipeline-v2.3): ranked only if measured share of the scored

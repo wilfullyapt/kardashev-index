@@ -261,7 +261,9 @@ a cache, re-synced after a run or a retraction):
   `summary.energy_unreadable` lists the sources), it never takes the "no energy figure found"
   (formerly "energy undisclosed") basis, an `energy_unreadable` alert is raised (admin banner,
   `/internal/alerts`, webhook) and a follow-up run is queued (`trigger: energy_retry`,
-  `next_attempt_at` = now + `ENERGY_RETRY_DELAY_HOURS`). A manual re-run starts that queued retry
+  `next_attempt_at` = now + the n-th of `ENERGY_RETRY_DELAYS_HOURS`, default 6/24/72 h, at most
+  `ENERGY_RETRY_MAX` = 3 in a row; from pipeline-v2.12 each retry carries the unreadable URLs and a
+  strategy: `archive_first`, `browser_first`, `standard`). A manual re-run starts that queued retry
   immediately. Dead links (404/410) and soft 404s don't count.
   **Which sources count** (pipeline-v2.9, `app/pipeline/disclosure.py`): only the company's own
   domain (subdomains included) or a disclosure registry (cdp.net, responsibilityreports.com);
@@ -311,7 +313,7 @@ a cache, re-synced after a run or a retraction):
 | `JUDGE_MAX_SOURCES` | `12` | candidate sources fetched per run |
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | `0.6` / `0.3` | weight that must be scored to be ranked |
 | `RANK_MIN_MEASURED_SHARE` / `RANK_MIN_CONFIDENCE` | `0.4` / `0.2` | ranked only if measured share of scored weight and confidence are strictly above these |
-| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAY_HOURS` / `ENERGY_RETRY_MAX` | `1` / `24` / `1` | when an energy source was found but couldn't be read: schedule a follow-up run this many hours later, at most this many in a row per company (each is a normal paid run) |
+| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAYS_HOURS` / `ENERGY_RETRY_MAX` | `1` / `6,24,72` / `3` | when an energy source was found but couldn't be read: schedule follow-up runs after these delays (retry n waits the n-th value; the last repeats), at most this many in a row per company; each retry fetches the unreadable documents differently (Wayback copy first, then browser headers first, then the normal order). Each is a normal paid run. `ENERGY_RETRY_DELAY_HOURS` (pre-1.6.0) still works: when set and `ENERGY_RETRY_DELAYS_HOURS` isn't, it applies to every retry |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | `64000` / `20000` | document text sent to the extract stage (total / per source) |
 | `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
