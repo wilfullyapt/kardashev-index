@@ -10,6 +10,21 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.3.0] — Read JavaScript-built pages' embedded data
+
+**Component change: pipeline-v2.9 → pipeline-v2.10** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking rules are unchanged; pages that used to read as "thin" can now
+supply verified figures. Note: under "newer pipeline wins", a *clean* v2.10 run replaces an older
+v2.9 current run even if unranked (degraded / energy-unreadable runs never do).
+
+### Added
+- Embedded page data (`app/pipeline/fetch.py` `embedded_json_texts`): when an HTML page's visible
+  text is under 2,000 characters, prose from its Next.js `__NEXT_DATA__`, JSON-LD and other
+  `application/json` data islands is appended to the page text (deduplicated; URLs, ids and code
+  skipped; capped at 200,000 characters). JS-built sites such as Anduril's stop reading as "thin".
+  Quotes are verified against this text like any other; no headless browser and no new
+  infrastructure.
+
 ## [1.2.0] — /health observability
 
 No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged). `/health` change

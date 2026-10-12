@@ -232,12 +232,66 @@ def extract_text(content_type: str, body: bytes, url: str = "") -> tuple[str, st
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(body, "lxml")
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
+        embedded = embedded_json_texts(soup)
         for tag in soup(["script", "style", "noscript", "svg", "template", "iframe"]):
             tag.decompose()
-        return _norm_ws(title), _norm_ws(soup.get_text(" "))
+        text = _norm_ws(soup.get_text(" "))
+        if len(text) < EMBEDDED_MIN_VISIBLE and embedded:
+            # JavaScript-built page: the visible HTML is a shell, the content ships as JSON.
+            extra = _norm_ws(" ".join(p for p in embedded if p not in text))
+            text = _norm_ws(f"{text} {extra}")[: EMBEDDED_MAX_CHARS + len(text)]
+        return _norm_ws(title), text
     if content_type.startswith("text/") or "json" in content_type or "xml" in content_type:
         return "", _norm_ws(body.decode("utf-8", errors="replace"))
     raise ValueError(f"unsupported content type: {content_type or 'unknown'}")
+
+
+# Embedded page data (1.3.0, pipeline-v2.10): a page whose visible text is shorter than this gets the
+# prose strings from its Next.js __NEXT_DATA__, JSON-LD and other application/json scripts appended.
+EMBEDDED_MIN_VISIBLE = 2000
+EMBEDDED_MAX_CHARS = 200_000
+_EMBED_TYPES = ("application/json", "application/ld+json")
+_URLISH = re.compile(r"^(?:https?:|/|data:|#)|\.(?:png|jpe?g|svg|webp|gif|js|css|woff2?)(?:\?|$)", re.IGNORECASE)
+
+
+def _prose(value) -> list[str]:
+    """String values that read like text (several words), depth-first, in document order."""
+    out, stack = [], [value]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, str):
+            t = v.strip()
+            if len(t) >= 25 and " " in t and not _URLISH.search(t) and not t.lstrip().startswith(("{", "[", "<")):
+                out.append(t)
+        elif isinstance(v, dict):
+            stack.extend(reversed(list(v.values())))
+        elif isinstance(v, list):
+            stack.extend(reversed(v))
+    return out
+
+
+def embedded_json_texts(soup) -> list[str]:
+    """Prose from <script id="__NEXT_DATA__">, JSON-LD and other JSON data islands (deduplicated)."""
+    seen, out, total = set(), [], 0
+    for tag in soup.find_all("script"):
+        kind = (tag.get("type") or "").lower().split(";")[0].strip()
+        if kind not in _EMBED_TYPES and tag.get("id") != "__NEXT_DATA__":
+            continue
+        raw = tag.string or tag.get_text() or ""
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        for t in _prose(data):
+            t = _norm_ws(t)
+            if t in seen:
+                continue
+            seen.add(t)
+            out.append(t)
+            total += len(t)
+            if total > EMBEDDED_MAX_CHARS:
+                return out
+    return out
 
 
 def is_pdf_body(content_type: str, body: bytes) -> bool:

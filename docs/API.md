@@ -218,6 +218,11 @@ a cache, re-synced after a run or a retraction):
   stops the fallback for the rest of the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
   not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
   copy was used, appended to the source's reason (shown on the admin run page).
+- **Embedded page data** (pipeline-v2.10, `app/pipeline/fetch.py` `embedded_json_texts`): when an
+  HTML page's visible text is under 2,000 characters (a JavaScript shell), prose strings from its
+  Next.js `__NEXT_DATA__`, JSON-LD and other `application/json` scripts are appended to the stored
+  text (deduplicated; URLs, ids and code skipped; at most 200,000 characters). Quotes are verified
+  against that text like any other. No headless browser is used.
 - **Report-PDF discovery** (pipeline-v2.8, `app/pipeline/discover.py`): when a report landing page
   (research said it covers energy, or its path/title names impact / sustainability / ESG / climate /
   CDP / energy) could be read, from the original or its Wayback copy, its PDF links that name a
