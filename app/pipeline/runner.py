@@ -570,6 +570,56 @@ def stage_fetch(ctx: RunContext):
         if outcomes:
             st.detail["wayback"] = {"outcomes": outcomes, "requests": wb.requests, "cap": wb.max_requests,
                                     "stopped": wb.down}
+        _defer_if_only_transient(ctx, st, counts)
+
+
+TRANSIENT_HTTP = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
+
+
+def transient_reason(src) -> str | None:
+    """Why this unreadable source might read fine later (rate limit, outage, timeout, or a refused
+    original whose Wayback fallback couldn't be tried), else None (a real answer: thin, unreadable PDF,
+    a block the archive had no copy for, ...)."""
+    if src.status != "dead":
+        return None
+    if src.http_status in TRANSIENT_HTTP:
+        return f"HTTP {src.http_status}"
+    reason = (src.reject_reason or "").lower()
+    if src.http_status is None and ("timeout" in reason or "timed out" in reason):
+        return "timeout"
+    att = src.archive_attempt if isinstance(src.archive_attempt, dict) else {}
+    outcome, note = att.get("outcome"), att.get("note") or ""
+    # "unavailable" also covers a lookup that answered 404 (nothing archived): only an outage counts.
+    archive_down = outcome in ("rate_limited", "capped") or (
+        outcome == "unavailable" and ("unavailable (" in note or "archive.org unavailable" in note))
+    if src.http_status in ARCHIVE_STATUSES and archive_down:
+        return f"HTTP {src.http_status}, Wayback {outcome}"
+    return None
+
+
+def _defer_if_only_transient(ctx: RunContext, st: Stage, counts: dict):
+    """Defer the run (re-queued via the transient-retry path, 2/10/60 min, RUN_MAX_ATTEMPTS) instead
+    of finishing it when what's missing failed only for reasons that pass: the company's energy
+    disclosure couldn't be read only because of rate limits/outages/timeouts, or no source at all was
+    readable and every failure was transient. On the final attempt the run completes as before."""
+    if not ctx.s.defer_transient_fetch or ctx.final_attempt:
+        return
+    energy = energy_unreadable_sources(ctx.db, ctx.run.id, ctx.candidates, ctx.entity.get("domain"))
+    rows = {r.id: r for r in ctx.db.query(Source).filter(Source.run_id == ctx.run.id, Source.origin != "edgar")}
+    why: list[str] = []
+    if energy:
+        reasons = [transient_reason(rows[e["source_id"]]) for e in energy if e["source_id"] in rows]
+        if reasons and all(reasons):
+            why = [f"energy source {e['url']}: {r}" for e, r in zip(energy, reasons, strict=False)]
+    if not why and rows and not counts.get("ok"):
+        failing = [(r, transient_reason(r)) for r in rows.values() if r.status not in ("duplicate",)]
+        if failing and all(t for _r, t in failing):
+            why = [f"{r.url}: {t}" for r, t in failing]
+    if why:
+        st.detail["deferred"] = why[:10]
+        raise RunFailed("fetch_transient", "fetch: deferred, sources failed only transiently ("
+                        + "; ".join(why[:3]) + (f"; +{len(why) - 3} more" if len(why) > 3 else "") + ")",
+                        transient=True)
 
 
 def _locate_any(ctx: RunContext, quote: str, sid: int) -> tuple[int, ev.Match | None, bool]:

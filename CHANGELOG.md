@@ -10,6 +10,32 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.5.0] — Defer instead of publish when sources fail only transiently
+
+**Component change: pipeline-v2.10 → pipeline-v2.11** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking thresholds are unchanged. What changes is *when* a run
+finishes: a run whose missing data failed only for passing reasons no longer completes (and
+possibly publishes) on an early attempt.
+
+### Changed
+- End of the fetch stage (`app/pipeline/runner.py` `_defer_if_only_transient`): if the company's
+  energy disclosure couldn't be read **only** because of a rate limit, outage or timeout (429/5xx,
+  timeout, or a refused original whose Wayback fallback was rate-limited, down or capped), or no
+  source at all was readable and every failure was of that kind, the run raises
+  `fetch_transient` (transient). It is re-queued through the existing retry path
+  (`RUN_RETRY_DELAYS_MIN` 2/10/60 min, `RUN_MAX_ATTEMPTS` 4) and re-fetches on the next attempt.
+  Nothing is published meanwhile. The final attempt completes exactly as before (e.g.
+  "energy couldn't be read"), so runs never loop.
+- Permanent answers (a block the archive has no copy of, 404, thin page, unreadable PDF) are not
+  deferred.
+
+### Added
+- `FETCH_DEFER_TRANSIENT` (default `1`; `0` restores the previous behaviour).
+
+### Cost
+- A deferred attempt has already paid for resolve + research (~$0.05–0.10 of the per-run cap);
+  extract and judge only run once fetching succeeds or on the final attempt.
+
 ## [1.4.0] — Per-host User-Agent strategy
 
 No scoring change (pipeline-v2.10, prompts-v2.5, weights-v1, rubrics-v1 unchanged): the same pages

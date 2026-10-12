@@ -221,6 +221,7 @@ All optional; Default (not in `render.yaml`).
 | `FETCH_WAYBACK` / `FETCH_WAYBACK_MAX_REQUESTS` | Wayback fallback on/off; archive.org requests per run | `1` / `16` |
 | `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | archive.org pacing (seconds between requests, all runs), backoff retries on 429/5xx, longest `Retry-After` honoured | `1.5` / `2` / `120` |
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | pause-and-probe cycles before the run's breaker opens; pause without `Retry-After`; real archive.org requests per day (`0` = off) | `1` / `60` / `400` |
+| `FETCH_DEFER_TRANSIENT` | defer a run instead of finishing it when the energy disclosure (or every source) failed only transiently; final attempt completes as before | `1` |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | report PDFs followed per page / per run (`0` = off) | `2` / `4` |
 | `SNAPSHOT_MAX_CHARS` | fetched text stored per source | `1000000` |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | text sent to extraction in total / per source | `64000` / `20000` |

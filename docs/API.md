@@ -320,6 +320,7 @@ a cache, re-synced after a run or a retraction):
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
 | `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | `1.5` / `2` / `120` | seconds between archive.org requests (shared by all runs, one at a time); backoff retries on 429/5xx/outage; longest `Retry-After` honoured |
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | `1` / `60` / `400` | pause-and-probe cycles before the breaker opens for the run; pause when no `Retry-After` is sent; real archive.org requests per day across runs (`0` = no cap) |
+| `FETCH_DEFER_TRANSIENT` | `1` | defer a run (re-queued via `RUN_RETRY_DELAYS_MIN`, up to `RUN_MAX_ATTEMPTS`) when the company's energy disclosure, or every source, failed only transiently (429/5xx, timeout, or a refused page whose Wayback fallback was rate-limited/down/capped); the final attempt completes as before |
 | `OBS_CACHE_S` / `OBS_WINDOW_DAYS` | `60` / `7` | `/health` observability: cache lifetime (seconds) and the window for run outcomes and failing hosts |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |

@@ -80,6 +80,9 @@ class Settings:
     # pipeline-v2.4: an energy source that was found but could not be read (too large, unparseable,
     # 403/429/5xx, timeout, no text layer) makes the run "energy couldn't be read": unranked, admin
     # alert, and one automatic retry ENERGY_RETRY_DELAY_HOURS later (at most ENERGY_RETRY_MAX in a row).
+    # Defer instead of publish (1.5.0): when the energy disclosure (or every source) failed only for
+    # transient reasons, re-queue the run via the RUN_RETRY_DELAYS_MIN path; the final attempt completes.
+    defer_transient_fetch: bool = field(default_factory=lambda: _b("FETCH_DEFER_TRANSIENT", True))
     energy_retry_enabled: bool = field(default_factory=lambda: _b("ENERGY_RETRY_ENABLED", True))
     energy_retry_delay_hours: float = field(default_factory=lambda: _f("ENERGY_RETRY_DELAY_HOURS", 24.0))
     energy_retry_max: int = field(default_factory=lambda: _i("ENERGY_RETRY_MAX", 1))
