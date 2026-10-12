@@ -31,12 +31,23 @@ def stored_measured_share(run) -> float | None:
     return disclosure_share(rows)
 
 
+LEGACY_RETRY_SUFFIX = "; retry scheduled"
+
+
+def public_reason(reason: str | None) -> str | None:
+    """Runs before 1.0.1 stored "; retry scheduled" whenever retries were enabled, even if none was
+    queued. That claim is dropped at display time; newer runs state what was actually queued."""
+    if reason and reason.endswith(LEGACY_RETRY_SUFFIX):
+        return reason[: -len(LEGACY_RETRY_SUFFIX)]
+    return reason
+
+
 def rank_status(run) -> tuple[bool, str | None]:
     """(ranked now?, reason if not)."""
     if run is None:
         return False, None
     if not run.ranked:
-        return False, (run.summary or {}).get("not_ranked_reason") or "insufficient data"
+        return False, public_reason((run.summary or {}).get("not_ranked_reason")) or "insufficient data"
     s = settings()
     share = stored_measured_share(run)
     if share is None:

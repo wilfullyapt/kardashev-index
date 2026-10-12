@@ -19,6 +19,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
+from zoneinfo import ZoneInfo
 from datetime import UTC, datetime, timedelta
 from urllib.parse import urlsplit, urlunsplit
 
@@ -921,11 +922,11 @@ def stage_aggregate(ctx: RunContext):
                         min_confidence=ctx.s.rank_min_confidence)
         if unreadable:
             # Never score a company without energy because we failed to read its energy source.
+            # The retry outcome is appended after the run commits (retry_note), only once we know
+            # whether a retry was actually queued: the public reason never promises one that isn't.
             agg = replace(agg, ranked=False, basis="energy_unreadable",
                           reason=(f"energy source found but couldn't be read ({len(unreadable)}: "
-                                  f"{unreadable[0]['reason'] or unreadable[0]['status']}); retry scheduled"
-                                  if ctx.s.energy_retry_enabled else
-                                  f"energy source found but couldn't be read ({len(unreadable)})")[:300])
+                                  f"{unreadable[0]['reason'] or unreadable[0]['status']})")[:260])
             ctx.flags.append(f"energy couldn't be read: {len(unreadable)} energy source(s) found but unreadable")
             st.detail["energy_unreadable"] = unreadable[:10]
         run.index_score, run.measured_score, run.judged_score = agg.index_score, agg.measured_score, agg.judged_score
@@ -1090,6 +1091,10 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
             alerts.notify(alerts.run_event(run, "run_degraded" if run.degraded else "run_withheld"))
         if (run.summary or {}).get("energy_unreadable"):
             retry = schedule_energy_retry(db, run, deps)
+            note = retry_note(retry, deps.settings.energy_retry_enabled)
+            run.summary = {**run.summary, "energy_retry_run_id": retry.id if retry else None,
+                           "not_ranked_reason": f"{run.summary.get('not_ranked_reason') or ''}; {note}"[:300]}
+            db.commit()
             alerts.notify({**alerts.run_event(run, "energy_unreadable"),
                            "retry_run_id": retry.id if retry else None,
                            "unreadable": run.summary["energy_unreadable"][:5]})
@@ -1133,6 +1138,19 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
             db.commit()
             alerts.notify(alerts.run_event(run, "run_failed"))
     return run
+
+
+PT = ZoneInfo("America/Los_Angeles")
+
+
+def retry_note(retry: JudgmentRun | None, enabled: bool) -> str:
+    """What the public reason says about a follow-up run: only what is actually queued."""
+    if retry is not None and retry.next_attempt_at is not None:
+        when = _utc(retry.next_attempt_at).astimezone(PT)
+        return f"retry scheduled for {when:%b} {when.day}, {when:%H:%M} PT"
+    if not enabled:
+        return "automatic retries are off"
+    return "no automatic retry queued (retry limit reached); the daily sweep re-checks it later"
 
 
 def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | None:

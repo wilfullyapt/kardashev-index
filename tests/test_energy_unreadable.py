@@ -136,3 +136,44 @@ def test_public_labels(client, db):
     meth = client.get("/methodology").text
     assert "No energy figure found" in meth and 'id="energy-unreadable"' in meth
     assert "Energy undisclosed" not in meth
+
+
+def test_reason_states_the_queued_retry_time(db):
+    llm, routes = _world((403, "text/html", "denied"))
+    _c, run = _run(db, llm, routes)
+    retry = db.query(JudgmentRun).filter(JudgmentRun.trigger == ENERGY_RETRY_TRIGGER).one()
+    reason = run.summary["not_ranked_reason"]
+    assert "retry scheduled for " in reason and reason.endswith(" PT")
+    assert run.summary["energy_retry_run_id"] == retry.id
+    assert run.rank_reason == reason
+
+
+def test_reason_says_no_retry_when_limit_reached(db):
+    llm, routes = _world((403, "text/html", "denied"))
+    _c, _first = _run(db, llm, routes)
+    retry = db.query(JudgmentRun).filter(JudgmentRun.trigger == ENERGY_RETRY_TRIGGER).one()
+    retry.next_attempt_at = None
+    db.commit()
+    llm2, routes2 = _world((403, "text/html", "denied"))
+    second = execute_run(db, retry.id, fakes.make_deps(llm2, routes=routes2))
+    reason = second.summary["not_ranked_reason"]
+    assert "retry scheduled" not in reason and "no automatic retry queued" in reason
+    assert second.summary["energy_retry_run_id"] is None
+
+
+def test_reason_when_retries_disabled(db):
+    llm, routes = _world((403, "text/html", "denied"))
+    c = Company(canonical_name="d", official_name="D", industry="Autos")
+    db.add(c)
+    db.commit()
+    run, _ = enqueue_run(db, c.id, trigger="test", triggered_by="t")
+    run = execute_run(db, run.id, fakes.make_deps(llm, routes=routes, energy_retry_enabled=False))
+    assert run.summary["not_ranked_reason"].endswith("automatic retries are off")
+
+
+def test_legacy_retry_claim_is_dropped_at_display():
+    from app.eligibility import public_reason, rank_status
+    legacy = SimpleNamespace(ranked=False, summary={
+        "not_ranked_reason": "energy source found but couldn't be read (4: HTTP 403); retry scheduled"})
+    assert rank_status(legacy)[1] == "energy source found but couldn't be read (4: HTTP 403)"
+    assert public_reason("retry scheduled for Oct 13, 09:00 PT") == "retry scheduled for Oct 13, 09:00 PT"

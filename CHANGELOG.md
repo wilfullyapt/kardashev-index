@@ -10,6 +10,19 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.0.1] — Honest "retry scheduled" wording
+
+No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged).
+
+### Fixed
+- "Energy couldn't be read" reasons no longer always end in "retry scheduled". The suffix is now
+  written after the run commits and states what actually happened: "retry scheduled for <date,
+  time> PT" when an energy retry was queued, "no automatic retry queued (retry limit reached); the
+  daily sweep re-checks it later" when `ENERGY_RETRY_MAX` was reached, or "automatic retries are
+  off". The run summary records `energy_retry_run_id`.
+- Runs stored before 1.0.1 (e.g. Tesla, TSMC) carried "; retry scheduled" even when no retry was
+  queued; that legacy suffix is dropped at display time (`app/eligibility.public_reason`).
+
 ## [1.0.0] — Public launch baseline
 
 Unreleased (untagged; to be tagged `v1.0.0` after merge, with owner approval). No functional change
