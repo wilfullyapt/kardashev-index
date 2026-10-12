@@ -32,13 +32,14 @@ from ..models import (CategoryScore, Company, Evidence, IngestLog, JudgmentRun, 
 from . import evidence as ev
 from . import methodology as meth
 from . import prompts as P
+from . import registries
 from . import semantics as sem
 from .aggregate import aggregate
 from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
 from .disclosure import classify as energy_disclosure
 from .discover import is_report_page, pick, report_links
-from .fetch import ARCHIVE_STATUSES, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
+from .fetch import ARCHIVE_STATUSES, BROWSER_HEADERS, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
 from .largepdf import read_large_pdf, rescue_oversized
 from .llm import LLM, LLMError, LLMResult, extract_json
 from .sources import rank_candidates
@@ -431,6 +432,8 @@ def stage_edgar(ctx: RunContext):
                     f"{': ' + chk['note'] if chk.get('note') else ''})")
             return
         client = _edgar_client(ctx)
+        if ctx.s.edgar_annual_report:
+            _add_annual_report(ctx, st, client, cik)
         try:
             facts = client.company_facts(cik)
         except EdgarError as err:
@@ -464,6 +467,38 @@ def stage_edgar(ctx: RunContext):
                           "concepts": {m: (s[0].concept if s else None) for m, s in fin.items()}})
 
 
+def _add_annual_report(ctx: RunContext, st: Stage, client: EdgarClient, cik: str):
+    """The latest 10-K / 20-F text as a candidate source (SEC never bot-walls a declared client;
+    annual reports often state electricity use, data-center capacity and capex plans)."""
+    try:
+        doc = client.latest_annual_report(cik)
+    except EdgarError as err:
+        st.detail["annual_report"] = f"not found: {err}"[:300]
+        return
+    if not doc:
+        st.detail["annual_report"] = "no 10-K / 20-F / 40-F in recent filings"
+        return
+    st.detail["annual_report"] = doc
+    if any(c["url"] == doc["url"] for c in ctx.candidates):
+        return
+    cand = {"url": doc["url"], "title": f"{doc['form']} annual report (SEC EDGAR, filed {doc['filed']})",
+            "covers": ["energy", "growth", "compute"], "origin": "filing",
+            "why": f"latest {doc['form']} filed with the SEC ({doc['accn']})"}
+    ctx.candidates.append(cand)
+    st.cp["filing_candidates"] = [cand]
+
+
+def _needs_registry(results, domain: str | None) -> bool:
+    """No energy-tagged source was read, or the company's own energy disclosure couldn't be read."""
+    read = any(a.status == "ok" and "energy" in (c.get("covers") or ()) and c.get("origin") != "filing"
+               for c, _res, a, _o, _att in results)
+    if not read:
+        return True
+    return any(a.status in ("dead", "error", "thin") and (res.status is None or res.status not in (404, 410))
+               and energy_disclosure(c["url"], c.get("title"), a.status, c.get("covers") or (), c.get("why"), domain)
+               for c, res, a, _o, _att in results)
+
+
 def _discover(ctx: RunContext, results) -> list[dict]:
     """Report PDFs linked from report landing pages we could read (original or Wayback copy)."""
     if ctx.s.discover_max <= 0 or ctx.s.discover_per_page <= 0:
@@ -489,14 +524,37 @@ def _discover(ctx: RunContext, results) -> list[dict]:
     return out
 
 
+def _retry_plan(ctx: RunContext) -> tuple[str | None, set[str]]:
+    """An energy retry's fetch strategy and the previously unreadable URLs it must try again."""
+    cp = ctx.run.checkpoint or {}
+    return cp.get("strategy"), set(cp.get("retry_urls") or [])
+
+
 def stage_fetch(ctx: RunContext):
     with ctx.stage("fetch") as st:
+        strategy, retry_urls = _retry_plan(ctx)
+        if retry_urls:
+            # The documents that couldn't be read last time are tried again even if research
+            # doesn't return them this time.
+            known = {c["url"] for c in ctx.candidates}
+            for u in sorted(retry_urls - known):
+                ctx.candidates.append({"url": u, "title": None, "covers": ["energy"], "origin": "retry",
+                                       "why": "energy source that couldn't be read in the previous run"})
+            st.detail["retry_strategy"] = {"strategy": strategy, "urls": sorted(retry_urls)}
         if not ctx.candidates:
             st.skip("no candidate sources")
             return
         checker = SourceChecker(ctx.deps.fetcher, **({"probe_token": ctx.deps.probe_token}
                                                      if ctx.deps.probe_token else {}))
-        wb = Wayback(ctx.deps.fetcher, max_requests=ctx.s.wayback_max_requests) if ctx.s.wayback_enabled else None
+        wb = None
+        if ctx.s.wayback_enabled:
+            s = ctx.s
+            # Pacing/backoff only against the real network (tests' fake fetchers answer instantly).
+            pace = ({"min_interval_s": s.wayback_min_interval_s, "retries": s.wayback_retries,
+                         "retry_after_cap_s": s.wayback_retry_after_cap_s, "resumes": s.wayback_resumes,
+                         "pause_s": s.wayback_pause_s, "daily_max": s.wayback_daily_max}
+                    if isinstance(ctx.deps.fetcher, HttpFetcher) else {})
+            wb = Wayback(ctx.deps.fetcher, max_requests=s.wayback_max_requests, **pace)
         big_pdf = ctx.deps.large_pdf or (read_large_pdf if isinstance(ctx.deps.fetcher, HttpFetcher) else None)
 
         def accept(url, res):
@@ -506,7 +564,15 @@ def stage_fetch(ctx: RunContext):
             return a
 
         def work(c):
-            res = ctx.deps.fetcher.get(c["url"])
+            retrying = c["url"] in retry_urls
+            if retrying and strategy == "archive_first" and wb is not None:
+                arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
+                if arch is not None:
+                    return c, arch, aa, None, att
+            if retrying and strategy == "browser_first":
+                res = ctx.deps.fetcher.get(c["url"], headers=dict(BROWSER_HEADERS))
+            else:
+                res = ctx.deps.fetcher.get(c["url"])
             a = accept(c["url"], res)
             if a.status != "ok" and wb is not None and res.status in ARCHIVE_STATUSES:
                 arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
@@ -523,6 +589,20 @@ def stage_fetch(ctx: RunContext):
             ctx.candidates.extend(discovered)
             st.cp["discovered"] = discovered
             st.detail["discovered"] = [{"url": c["url"], "from": c["found_on"]} for c in discovered]
+        if ctx.s.registry_fallback and _needs_registry(results, ctx.entity.get("domain")):
+            name = ctx.entity.get("official_name") or ctx.company.official_name or ctx.company.canonical_name
+            known = {c["url"] for c in ctx.candidates}
+            try:
+                registry = [c for c in registries.responsibility_reports(ctx.deps.fetcher, name or "")
+                            if c["url"] not in known]
+            except Exception as e:     # a registry lookup must never fail the run
+                registry = []
+                st.detail["registry_error"] = f"{type(e).__name__}: {e}"[:300]
+            if registry:
+                results += [work(c) for c in registry]
+                ctx.candidates.extend(registry)
+                st.cp["registry"] = registry
+                st.detail["registry"] = [c["url"] for c in registry]
         counts: dict[str, int] = {}
         domain = ctx.entity.get("domain")
         seen_sha: dict[str, int] = {}
@@ -548,7 +628,9 @@ def stage_fetch(ctx: RunContext):
             if res.archived_from:
                 src.archive_url = res.final_url
                 src.archive_timestamp = res.archive_timestamp
-                src.reject_reason = f"original answered HTTP {original.status}; using the Wayback Machine copy"
+                src.reject_reason = (f"original answered HTTP {original.status}; using the Wayback Machine copy"
+                                     if original is not None else
+                                     "energy retry (archive first): using the Wayback Machine copy")
                 archived.append(c["url"])
             ctx.db.add(src)
             ctx.db.flush()
@@ -562,6 +644,56 @@ def stage_fetch(ctx: RunContext):
         if outcomes:
             st.detail["wayback"] = {"outcomes": outcomes, "requests": wb.requests, "cap": wb.max_requests,
                                     "stopped": wb.down}
+        _defer_if_only_transient(ctx, st, counts)
+
+
+TRANSIENT_HTTP = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
+
+
+def transient_reason(src) -> str | None:
+    """Why this unreadable source might read fine later (rate limit, outage, timeout, or a refused
+    original whose Wayback fallback couldn't be tried), else None (a real answer: thin, unreadable PDF,
+    a block the archive had no copy for, ...)."""
+    if src.status != "dead":
+        return None
+    if src.http_status in TRANSIENT_HTTP:
+        return f"HTTP {src.http_status}"
+    reason = (src.reject_reason or "").lower()
+    if src.http_status is None and ("timeout" in reason or "timed out" in reason):
+        return "timeout"
+    att = src.archive_attempt if isinstance(src.archive_attempt, dict) else {}
+    outcome, note = att.get("outcome"), att.get("note") or ""
+    # "unavailable" also covers a lookup that answered 404 (nothing archived): only an outage counts.
+    archive_down = outcome in ("rate_limited", "capped") or (
+        outcome == "unavailable" and ("unavailable (" in note or "archive.org unavailable" in note))
+    if src.http_status in ARCHIVE_STATUSES and archive_down:
+        return f"HTTP {src.http_status}, Wayback {outcome}"
+    return None
+
+
+def _defer_if_only_transient(ctx: RunContext, st: Stage, counts: dict):
+    """Defer the run (re-queued via the transient-retry path, 2/10/60 min, RUN_MAX_ATTEMPTS) instead
+    of finishing it when what's missing failed only for reasons that pass: the company's energy
+    disclosure couldn't be read only because of rate limits/outages/timeouts, or no source at all was
+    readable and every failure was transient. On the final attempt the run completes as before."""
+    if not ctx.s.defer_transient_fetch or ctx.final_attempt:
+        return
+    energy = energy_unreadable_sources(ctx.db, ctx.run.id, ctx.candidates, ctx.entity.get("domain"))
+    rows = {r.id: r for r in ctx.db.query(Source).filter(Source.run_id == ctx.run.id, Source.origin != "edgar")}
+    why: list[str] = []
+    if energy:
+        reasons = [transient_reason(rows[e["source_id"]]) for e in energy if e["source_id"] in rows]
+        if reasons and all(reasons):
+            why = [f"energy source {e['url']}: {r}" for e, r in zip(energy, reasons, strict=False)]
+    if not why and rows and not counts.get("ok"):
+        failing = [(r, transient_reason(r)) for r in rows.values() if r.status not in ("duplicate",)]
+        if failing and all(t for _r, t in failing):
+            why = [f"{r.url}: {t}" for r, t in failing]
+    if why:
+        st.detail["deferred"] = why[:10]
+        raise RunFailed("fetch_transient", "fetch: deferred, sources failed only transiently ("
+                        + "; ".join(why[:3]) + (f"; +{len(why) - 3} more" if len(why) > 3 else "") + ")",
+                        transient=True)
 
 
 def _locate_any(ctx: RunContext, quote: str, sid: int) -> tuple[int, ev.Match | None, bool]:
@@ -994,8 +1126,11 @@ def _restore(ctx: RunContext):
         ctx.entity = dict(cp.get("entity") or {})
     if ctx.done("research"):
         ctx.candidates = list(cp.get("candidates") or [])
+    if ctx.done("edgar"):
+        known = {c["url"] for c in ctx.candidates}
+        ctx.candidates += [c for c in cp.get("filing_candidates") or [] if c["url"] not in known]
     if ctx.done("fetch"):
-        ctx.candidates += list(cp.get("discovered") or [])
+        ctx.candidates += list(cp.get("discovered") or []) + list(cp.get("registry") or [])
     sources = {s.id: s for s in db.query(Source).filter(Source.run_id == run_id)}
     if ctx.done("edgar"):
         for e in db.query(Evidence).filter(Evidence.run_id == run_id, Evidence.kind == "filing",
@@ -1049,7 +1184,9 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
             db.query(model).filter(model.run_id == run_id).delete(synchronize_session=False)
     else:
         reset_artifacts(db, run_id)
-        run.checkpoint = {"v": meth.PIPELINE_VERSION, "done": []}
+        # an energy retry's plan (strategy, URLs to try again) survives the fresh start
+        run.checkpoint = {"v": meth.PIPELINE_VERSION, "done": [],
+                          **{k: cp[k] for k in RETRY_PLAN_KEYS if k in cp}}
         for col in ("input_tokens", "output_tokens", "reasoning_tokens", "tool_calls"):
             setattr(run, col, 0)
         run.cost_usd = 0.0
@@ -1147,18 +1284,27 @@ def retry_note(retry: JudgmentRun | None, enabled: bool) -> str:
     """What the public reason says about a follow-up run: only what is actually queued."""
     if retry is not None and retry.next_attempt_at is not None:
         when = _utc(retry.next_attempt_at).astimezone(PT)
-        return f"retry scheduled for {when:%b} {when.day}, {when:%H:%M} PT"
+        n = (retry.checkpoint or {}).get("retry_number")
+        return f"retry scheduled for {when:%b} {when.day}, {when:%H:%M} PT" + (f" (automatic retry {n})" if n else "")
     if not enabled:
         return "automatic retries are off"
     return "no automatic retry queued (retry limit reached); the daily sweep re-checks it later"
 
 
-def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | None:
-    """Queue one follow-up run ENERGY_RETRY_DELAY_HOURS from now (worker waits for next_attempt_at).
+RETRY_PLAN_KEYS = ("strategy", "retry_urls", "retry_of", "retry_number")
+# Each energy retry fetches the unreadable documents differently, so a deterministic block isn't
+# simply repeated: Wayback copy first, then browser headers first, then the normal order again.
+ENERGY_RETRY_STRATEGIES = ("archive_first", "browser_first", "standard")
 
-    Bounded: disabled by ENERGY_RETRY_ENABLED=0; at most ENERGY_RETRY_MAX consecutive retries per
-    company (counted over its latest runs); never when another run is already active. Each retry is
-    a normal (paid, ~SWEEP_EST_RUN_USD) run."""
+
+def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | None:
+    """Queue a follow-up run after an energy-unreadable run (worker waits for next_attempt_at).
+
+    Escalating (1.7.0): retry n waits ENERGY_RETRY_DELAYS_HOURS[n] (default 6, 24, 72 h) and uses
+    ENERGY_RETRY_STRATEGIES[n]; the unreadable URLs are carried over and tried again.
+    Bounded: disabled by ENERGY_RETRY_ENABLED=0; at most ENERGY_RETRY_MAX (default 3) consecutive
+    retries per company (counted over its latest runs); never when another run is already active.
+    Each retry is a normal (paid, ~SWEEP_EST_RUN_USD) run."""
     s = deps.settings
     if not s.energy_retry_enabled or s.energy_retry_max <= 0:
         return None
@@ -1177,9 +1323,15 @@ def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | 
                          details={"run_id": run.id, "reason": f"{streak} energy retries in a row (max {s.energy_retry_max})"}))
         db.commit()
         return None
+    delays = s.energy_retry_delays_hours or (s.energy_retry_delay_hours,)
+    hours = delays[min(streak, len(delays) - 1)]
+    strategy = ENERGY_RETRY_STRATEGIES[streak % len(ENERGY_RETRY_STRATEGIES)]
+    urls = [u["url"] for u in ((run.summary or {}).get("energy_unreadable") or []) if u.get("url")]
     retry = JudgmentRun(company_id=run.company_id, status="queued", trigger=ENERGY_RETRY_TRIGGER,
                         triggered_by="system", attempt=0,
-                        next_attempt_at=deps.now() + timedelta(hours=s.energy_retry_delay_hours))
+                        next_attempt_at=deps.now() + timedelta(hours=hours),
+                        checkpoint={"v": meth.PIPELINE_VERSION, "done": [], "strategy": strategy,
+                                    "retry_urls": urls[:10], "retry_of": run.id, "retry_number": streak + 1})
     db.add(retry)
     try:
         db.commit()
@@ -1187,7 +1339,8 @@ def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | 
         db.rollback()
         return None
     db.add(IngestLog(company_id=run.company_id, action="energy_retry_scheduled", admin_id="system",
-                     details={"run_id": run.id, "retry_run_id": retry.id,
+                     details={"run_id": run.id, "retry_run_id": retry.id, "strategy": strategy,
+                              "retry_number": streak + 1, "max": s.energy_retry_max,
                               "next_attempt_at": retry.next_attempt_at.isoformat()}))
     db.commit()
     return retry

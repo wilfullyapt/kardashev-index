@@ -10,6 +10,169 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.7.0] — Resilience: fetch fallbacks, honest retries, observability
+
+One release combining what were PRs #28–#34 (follows 1.0.1 / #27). **Component change: pipeline-v2.9 →
+pipeline-v2.13** (prompts-v2.5, weights-v1, rubrics-v1 unchanged). Scoring math and ranking
+thresholds are unchanged. The pipeline steps below (v2.10 to v2.13) are recorded for history; runs only ever
+carry v2.9 or v2.13. Under "newer pipeline wins", a *clean* v2.13 run can replace a v2.9 current
+run even if unranked (degraded / energy-unreadable runs never do).
+
+### Alternative sources: SEC annual reports and ResponsibilityReports.com
+
+**Component change: pipeline-v2.12 → pipeline-v2.13** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking thresholds are unchanged; runs can now draw verified figures
+from two more kinds of source. **Methodology note:** a registry copy can be an older report than the
+company's current one (e.g. a 2022 report when the newest is locked); its figures carry their own
+period like any other.
+
+#### Added
+- SEC annual report as a source (`app/pipeline/edgar.py` `latest_annual_report`, runner
+  `_add_annual_report`): the edgar stage reads `data.sec.gov/submissions/CIK….json` and adds the
+  newest original 10-K / 20-F / 40-F primary document as a candidate (`origin: filing`, primary,
+  fetched under `SEC_EDGAR_USER_AGENT` and SEC's rate limit). Annual reports often state
+  electricity use, capacity and capex plans, and sec.gov doesn't bot-wall a declared client.
+- Registry fallback (`app/pipeline/registries.py`): when no energy-tagged source was read, or the
+  company's own energy disclosure couldn't be read, the company is looked up on
+  ResponsibilityReports.com and its newest report PDF is fetched (`origin: registry`; the "most
+  recent" report unless locked, else the newest archived one). Lookup failures never fail a run.
+- CDP is **not** looked up automatically (its response pages are built in the browser and mostly
+  need an account); cdp.net pages found by research are still fetched and count as a registry.
+- `EDGAR_ANNUAL_REPORT` and `FETCH_REGISTRY_FALLBACK` (both default `1`).
+
+#### Cost
+- No paid infrastructure. Up to 3 extra HTTP requests (SEC submissions + document, registry search +
+  page + PDF) per run; a 10-K adds text competing for the same extraction budget
+  (`EXTRACT_MAX_CHARS`), so xAI cost per run is unchanged.
+
+### Escalating energy retries with a different strategy each time
+
+**Component change: pipeline-v2.11 → pipeline-v2.12** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking rules are unchanged; energy retries fetch differently.
+
+#### Changed
+- Energy-unreadable retries (`app/pipeline/runner.py` `schedule_energy_retry`): up to
+  `ENERGY_RETRY_MAX` = **3** (was 1) consecutive retries, waiting `ENERGY_RETRY_DELAYS_HOURS` =
+  **6, 24, 72 h** (was a fixed 24 h). Each retry carries the previous run's unreadable URLs (tried
+  again even if research doesn't list them) and a strategy: 1st `archive_first` (Wayback copy
+  before the origin), 2nd `browser_first` (browser headers first), 3rd `standard`. The plan is kept
+  in the retry's checkpoint and logged on `energy_retry_scheduled`.
+- The public reason names the retry ("retry scheduled for Oct 13, 15:00 PT (automatic retry 1)");
+  the methodology page describes the escalation from the live settings.
+
+#### Added
+- `ENERGY_RETRY_DELAYS_HOURS` (default `6,24,72`). `ENERGY_RETRY_DELAY_HOURS` still works: when set
+  and the plural isn't, it applies to every retry. Set `ENERGY_RETRY_MAX=1` to restore one retry.
+
+#### Cost
+- Each retry is a normal paid run (~$0.35, `SWEEP_EST_RUN_USD`): at most ~$1.05 per company per
+  energy-unreadable episode (was ~$0.35). Retries do not count against the daily sweep cap.
+
+### Defer instead of publish when sources fail only transiently
+
+**Component change: pipeline-v2.10 → pipeline-v2.11** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking thresholds are unchanged. What changes is *when* a run
+finishes: a run whose missing data failed only for passing reasons no longer completes (and
+possibly publishes) on an early attempt.
+
+#### Changed
+- End of the fetch stage (`app/pipeline/runner.py` `_defer_if_only_transient`): if the company's
+  energy disclosure couldn't be read **only** because of a rate limit, outage or timeout (429/5xx,
+  timeout, or a refused original whose Wayback fallback was rate-limited, down or capped), or no
+  source at all was readable and every failure was of that kind, the run raises
+  `fetch_transient` (transient). It is re-queued through the existing retry path
+  (`RUN_RETRY_DELAYS_MIN` 2/10/60 min, `RUN_MAX_ATTEMPTS` 4) and re-fetches on the next attempt.
+  Nothing is published meanwhile. The final attempt completes exactly as before (e.g.
+  "energy couldn't be read"), so runs never loop.
+- Permanent answers (a block the archive has no copy of, 404, thin page, unreadable PDF) are not
+  deferred.
+
+#### Added
+- `FETCH_DEFER_TRANSIENT` (default `1`; `0` restores the previous behaviour).
+
+#### Cost
+- A deferred attempt has already paid for resolve + research (~$0.05–0.10 of the per-run cap);
+  extract and judge only run once fetching succeeds or on the final attempt.
+
+### Per-host User-Agent strategy
+
+No scoring change (pipeline-v2.10, prompts-v2.5, weights-v1, rubrics-v1 unchanged): the same pages
+are judged by the same rules; fewer of them are refused.
+
+#### Changed
+- Fetching (`app/pipeline/fetch.py` `HttpFetcher`): non-SEC hosts are now asked first as an honest,
+  identifiable crawler (`KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)`, minimal
+  headers). On 401/403/406 the request is repeated once with the browser headers used before; the
+  profile that got through is remembered per host (`HostProfiles`, in process, 7-day expiry) and
+  tried first next time. SEC hosts keep `SEC_EDGAR_USER_AGENT`; a caller's own User-Agent wins.
+  Each answer records the profile used (`FetchResult.profile`).
+
+#### Added
+- `FETCH_UA_STRATEGY` (`honest_first` default; `browser` restores the pre-1.4.0 behaviour) and
+  `FETCH_BOT_USER_AGENT` (override the bot string). Documented in docs/API.md and HANDOFF.md.
+
+#### Note
+- A host that blocks bots costs one extra request the first time per process (restarts forget).
+  The large-PDF reader keeps its browser headers.
+
+### Read JavaScript-built pages' embedded data
+
+**Component change: pipeline-v2.9 → pipeline-v2.10** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking rules are unchanged; pages that used to read as "thin" can now
+supply verified figures. Note: under "newer pipeline wins", a *clean* v2.10 run replaces an older
+v2.9 current run even if unranked (degraded / energy-unreadable runs never do).
+
+#### Added
+- Embedded page data (`app/pipeline/fetch.py` `embedded_json_texts`): when an HTML page's visible
+  text is under 2,000 characters, prose from its Next.js `__NEXT_DATA__`, JSON-LD and other
+  `application/json` data islands is appended to the page text (deduplicated; URLs, ids and code
+  skipped; capped at 200,000 characters). JS-built sites such as Anduril's stop reading as "thin".
+  Quotes are verified against this text like any other; no headless browser and no new
+  infrastructure.
+
+### /health observability
+
+No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged). `/health` change
+is additive (new `observability` object); existing fields and status codes are unchanged.
+
+#### Added
+- `/health` → `observability` (`app/observability.py`, cached `OBS_CACHE_S` = 60 s so Render's
+  frequent polling stays cheap):
+  - `runs_7d`: runs finished in the last `OBS_WINDOW_DAYS` (7) by outcome (`succeeded`,
+    `degraded`, `energy_unreadable`, `withheld`, `failed:<error_type>`);
+  - `hosts_7d`: the 10 hosts whose sources failed most, with counts by status (`dead:403`, `thin`,
+    `error`…) and Wayback outcome (`archive:rate_limited`…);
+  - `retry_claims_without_queued_run`: companies whose public reason says "retry scheduled" while
+    nothing is queued (should be empty);
+  - `archive`: real archive.org requests used today vs `FETCH_WAYBACK_DAILY_MAX`.
+- New env vars (optional): `OBS_CACHE_S` (60), `OBS_WINDOW_DAYS` (7).
+
+### archive.org pacing, backoff and budgets
+
+No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged): the same
+sources are accepted or rejected by the same rules; the Wayback fallback just gives up less easily.
+
+#### Changed
+- Wayback fallback (`app/pipeline/fetch.py` `Wayback`): archive.org requests are paced
+  (`FETCH_WAYBACK_MIN_INTERVAL_S`, default 1.5 s, one at a time, shared by all runs and threads);
+  a 429/5xx/outage is retried with backoff, honouring `Retry-After` up to
+  `FETCH_WAYBACK_RETRY_AFTER_CAP_S` (120 s; `FETCH_WAYBACK_RETRIES`, default 2); if archive.org
+  still refuses, the run pauses (`Retry-After` or `FETCH_WAYBACK_PAUSE_S`, 60 s) and probes once
+  more (`FETCH_WAYBACK_RESUMES`, default 1) before the breaker opens for the rest of the run.
+- Every real archive.org request now counts toward `FETCH_WAYBACK_MAX_REQUESTS` (16): the HTTP
+  client's own 429 retries are turned off for archive requests, so bursts are no longer hidden.
+
+#### Added
+- `FETCH_WAYBACK_DAILY_MAX` (default 400): real archive.org requests per UTC day across all runs in
+  the process; `archive_attempt.outcome` is `capped` with a "daily cap" note when it is reached.
+- New env vars (all optional, safe defaults): `FETCH_WAYBACK_MIN_INTERVAL_S`,
+  `FETCH_WAYBACK_RETRIES`, `FETCH_WAYBACK_RETRY_AFTER_CAP_S`, `FETCH_WAYBACK_RESUMES`,
+  `FETCH_WAYBACK_PAUSE_S`, `FETCH_WAYBACK_DAILY_MAX` (documented in docs/API.md and HANDOFF.md).
+
+#### Note
+- A run that meets a rate limit can now spend up to a few minutes in the fetch stage (pauses);
+  the worker heartbeat runs separately, so this is not mistaken for a stalled run.
+
 ## [1.0.1] — Honest "retry scheduled" wording
 
 No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged).

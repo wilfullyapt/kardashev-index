@@ -16,6 +16,7 @@ from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, 
 from . import alerts as alerts_svc
 from . import runs as runs_svc
 from . import disclosure
+from . import observability
 from . import publication
 from .pipeline import methodology as meth
 from .pipeline.config import code_version, settings as pipeline_settings, worker_settings
@@ -51,7 +52,9 @@ def build_deps() -> Deps:
                     search_timeout_s=cfg.search_timeout_s, max_retries=cfg.max_retries,
                     backoff_max_s=cfg.backoff_max_s) if XAI_API_KEY else None
     return Deps(llm=llm, fetcher=HttpFetcher(timeout_s=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes,
-                                             retries=cfg.fetch_retries, sec_user_agent=cfg.sec_user_agent),
+                                             retries=cfg.fetch_retries, sec_user_agent=cfg.sec_user_agent,
+                                             ua_strategy=cfg.fetch_ua_strategy,
+                                             bot_user_agent=cfg.fetch_bot_user_agent),
                 settings=cfg)
 
 
@@ -308,6 +311,7 @@ def health():
     body = {"status": status, "service": "kardashev-index", "version": __version__,
             "pipeline_version": meth.PIPELINE_VERSION, "prompt_version": prompts.PROMPT_VERSION,
             "code_version": code_version(), "worker": w,
+            "observability": observability.cached(worker.session_factory),
             "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
                        "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
     return JSONResponse(body, status_code=503 if "db_error" in w else 200)

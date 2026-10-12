@@ -39,6 +39,46 @@ BROWSER_HEADERS = {
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
 }
+# Honest, identifiable crawler profile (1.7.0). Many CDNs block a browser User-Agent sent from a
+# non-browser HTTP client (the TLS fingerprint gives it away) more readily than a declared bot.
+BOT_USER_AGENT = "KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)"
+BOT_HEADERS = {
+    "User-Agent": BOT_USER_AGENT,
+    "Accept": BROWSER_HEADERS["Accept"],
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+}
+UA_BLOCK_STATUSES = {401, 403, 406}      # answers that mean "not you", worth one try as the other profile
+UA_STRATEGIES = ("honest_first", "browser")
+
+
+class HostProfiles:
+    """Which header profile ("bot" | "browser") last got a non-blocked answer from each host. In
+    process (single web process on Render); forgotten on restart, then re-learned with one extra
+    request per blocked host. Entries expire after ``ttl_s`` so a host that unblocks us is retried."""
+
+    def __init__(self, ttl_s: float = 7 * 86400, clock=time.monotonic):
+        self.ttl_s, self._clock = ttl_s, clock
+        self._m: dict[str, tuple[str, float]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, host: str) -> str | None:
+        with self._lock:
+            v = self._m.get(host)
+            if v and self._clock() - v[1] < self.ttl_s:
+                return v[0]
+            return None
+
+    def remember(self, host: str, profile: str) -> None:
+        with self._lock:
+            self._m[host] = (profile, self._clock())
+
+    def snapshot(self) -> dict[str, str]:
+        with self._lock:
+            return {h: p for h, (p, _t) in self._m.items()}
+
+
+HOST_PROFILES = HostProfiles()
 MAX_REDIRECTS = 5
 RETRY_STATUSES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 ARCHIVE_STATUSES = {401, 403, 404, 410, 451}
@@ -59,6 +99,10 @@ BLOCK_PAGE_RE = re.compile(
 PDF_MAX_PAGES = 400
 PDF_MAX_CHARS = 3_000_000
 _PDF_SLOTS = threading.BoundedSemaphore(2)    # bound memory: at most two PDFs parsed at once
+
+
+def _host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
 
 
 def is_sec_host(url: str) -> bool:
@@ -105,6 +149,7 @@ class FetchResult:
     attempts: int = 1
     archived_from: str | None = None     # original URL when this is a Wayback Machine copy
     archive_timestamp: str | None = None  # YYYYMMDDhhmmss of the snapshot
+    profile: str | None = None           # header profile that produced this answer ("bot" | "browser")
 
 
 class Fetcher(Protocol):
@@ -140,7 +185,12 @@ def check_url_allowed(url: str, resolve=socket.getaddrinfo) -> None:
 class HttpFetcher:
     def __init__(self, *, timeout_s: float = 20, max_bytes: int = 30_000_000, retries: int = 2,
                  sec_user_agent: str | None = None, transport: httpx.BaseTransport | None = None,
-                 resolve=socket.getaddrinfo, sleep=time.sleep, sec_limiter: RateLimiter | None = None):
+                 resolve=socket.getaddrinfo, sleep=time.sleep, sec_limiter: RateLimiter | None = None,
+                 ua_strategy: str = "browser", bot_user_agent: str | None = None,
+                 profiles: HostProfiles | None = None):
+        self.ua_strategy = ua_strategy if ua_strategy in UA_STRATEGIES else "browser"
+        self.bot_headers = {**BOT_HEADERS, "User-Agent": bot_user_agent or BOT_USER_AGENT}
+        self.profiles = profiles or HOST_PROFILES
         self.timeout_s = timeout_s
         self.max_bytes = max_bytes
         self.retries = max(0, retries)
@@ -150,24 +200,50 @@ class HttpFetcher:
         self._sleep = sleep
         self._sec = sec_limiter or SEC_LIMITER
 
-    def get(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None) -> FetchResult:
+    def get(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None,
+            retries: int | None = None) -> FetchResult:
         """GET with retries for transient failures (429/5xx/timeouts/transport), backing off
-        exponentially and honouring Retry-After (capped at 20 s)."""
-        res = self._get_once(url, headers=headers, max_bytes=max_bytes)
-        for attempt in range(1, self.retries + 1):
+        exponentially and honouring Retry-After (capped at 20 s). ``retries=0`` turns this off for
+        callers that pace and back off themselves (the Wayback fallback), so every hit is counted.
+
+        Header profile (``ua_strategy="honest_first"``): non-SEC hosts are asked first as the declared
+        bot, and on 401/403/406 once more with browser headers; the profile that worked is remembered
+        per host (``HostProfiles``) and tried first next time. A caller's own User-Agent wins."""
+        retries = self.retries if retries is None else max(0, retries)
+        order = self._profiles_for(url, headers)
+        res = None
+        for i, profile in enumerate(order):
+            res = self._get_retrying(url, headers=headers, max_bytes=max_bytes, retries=retries, profile=profile)
+            res.profile = profile
+            if res.status not in UA_BLOCK_STATUSES or i == len(order) - 1:
+                if len(order) > 1 and res.status is not None and res.status not in UA_BLOCK_STATUSES:
+                    self.profiles.remember(_host(url), profile)
+                break
+        return res
+
+    def _profiles_for(self, url: str, headers: dict | None) -> list[str]:
+        if self.ua_strategy != "honest_first" or is_sec_host(url) or "User-Agent" in (headers or {}):
+            return ["browser"]
+        first = self.profiles.get(_host(url)) or "bot"
+        return [first, "browser" if first == "bot" else "bot"]
+
+    def _get_retrying(self, url, *, headers, max_bytes, retries, profile) -> FetchResult:
+        res = self._get_once(url, headers=headers, max_bytes=max_bytes, profile=profile)
+        for attempt in range(1, retries + 1):
             transient = (res.status in RETRY_STATUSES or
                          (res.status is None and res.error and not res.error.startswith("blocked")))
             if not transient:
                 break
             self._sleep(backoff_s(attempt, base=2.0, cap=20.0, retry_after=res.retry_after))
-            res = self._get_once(url, headers=headers, max_bytes=max_bytes)
+            res = self._get_once(url, headers=headers, max_bytes=max_bytes, profile=profile)
             res.attempts = attempt + 1
         return res
 
-    def _get_once(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None) -> FetchResult:
+    def _get_once(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None,
+                  profile: str = "browser") -> FetchResult:
         cap = max_bytes or self.max_bytes
         result = FetchResult(url=url)
-        hdrs = dict(BROWSER_HEADERS)
+        hdrs = dict(self.bot_headers if profile == "bot" else BROWSER_HEADERS)
         hdrs.update(headers or {})
         current = url
         try:
@@ -230,12 +306,66 @@ def extract_text(content_type: str, body: bytes, url: str = "") -> tuple[str, st
         from bs4 import BeautifulSoup
         soup = BeautifulSoup(body, "lxml")
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
+        embedded = embedded_json_texts(soup)
         for tag in soup(["script", "style", "noscript", "svg", "template", "iframe"]):
             tag.decompose()
-        return _norm_ws(title), _norm_ws(soup.get_text(" "))
+        text = _norm_ws(soup.get_text(" "))
+        if len(text) < EMBEDDED_MIN_VISIBLE and embedded:
+            # JavaScript-built page: the visible HTML is a shell, the content ships as JSON.
+            extra = _norm_ws(" ".join(p for p in embedded if p not in text))
+            text = _norm_ws(f"{text} {extra}")[: EMBEDDED_MAX_CHARS + len(text)]
+        return _norm_ws(title), text
     if content_type.startswith("text/") or "json" in content_type or "xml" in content_type:
         return "", _norm_ws(body.decode("utf-8", errors="replace"))
     raise ValueError(f"unsupported content type: {content_type or 'unknown'}")
+
+
+# Embedded page data (1.7.0, pipeline-v2.10): a page whose visible text is shorter than this gets the
+# prose strings from its Next.js __NEXT_DATA__, JSON-LD and other application/json scripts appended.
+EMBEDDED_MIN_VISIBLE = 2000
+EMBEDDED_MAX_CHARS = 200_000
+_EMBED_TYPES = ("application/json", "application/ld+json")
+_URLISH = re.compile(r"^(?:https?:|/|data:|#)|\.(?:png|jpe?g|svg|webp|gif|js|css|woff2?)(?:\?|$)", re.IGNORECASE)
+
+
+def _prose(value) -> list[str]:
+    """String values that read like text (several words), depth-first, in document order."""
+    out, stack = [], [value]
+    while stack:
+        v = stack.pop()
+        if isinstance(v, str):
+            t = v.strip()
+            if len(t) >= 25 and " " in t and not _URLISH.search(t) and not t.lstrip().startswith(("{", "[", "<")):
+                out.append(t)
+        elif isinstance(v, dict):
+            stack.extend(reversed(list(v.values())))
+        elif isinstance(v, list):
+            stack.extend(reversed(v))
+    return out
+
+
+def embedded_json_texts(soup) -> list[str]:
+    """Prose from <script id="__NEXT_DATA__">, JSON-LD and other JSON data islands (deduplicated)."""
+    seen, out, total = set(), [], 0
+    for tag in soup.find_all("script"):
+        kind = (tag.get("type") or "").lower().split(";")[0].strip()
+        if kind not in _EMBED_TYPES and tag.get("id") != "__NEXT_DATA__":
+            continue
+        raw = tag.string or tag.get_text() or ""
+        try:
+            data = json.loads(raw)
+        except ValueError:
+            continue
+        for t in _prose(data):
+            t = _norm_ws(t)
+            if t in seen:
+                continue
+            seen.add(t)
+            out.append(t)
+            total += len(t)
+            if total > EMBEDDED_MAX_CHARS:
+                return out
+    return out
 
 
 def is_pdf_body(content_type: str, body: bytes) -> bool:
@@ -375,37 +505,128 @@ def _why(tripped: str | None, res: FetchResult) -> str | None:
     return f"HTTP {res.status}" if res.status != 200 else None
 
 
+class ArchiveBudget:
+    """Daily cap on real archive.org requests across all runs in this process (resets at 00:00 UTC
+    and on restart; Render runs one web process, so this is effectively per service)."""
+
+    def __init__(self, clock=lambda: time.gmtime()):
+        self._clock = clock
+        self._day: str | None = None
+        self.used = 0
+        self._lock = threading.Lock()
+
+    def take(self, limit: int | None) -> bool:
+        if not limit or limit <= 0:
+            return True
+        with self._lock:
+            day = time.strftime("%Y-%m-%d", self._clock())
+            if day != self._day:
+                self._day, self.used = day, 0
+            if self.used >= limit:
+                return False
+            self.used += 1
+            return True
+
+
+ARCHIVE_BUDGET = ArchiveBudget()
+_ARCHIVE_LIMITERS: dict[float, RateLimiter] = {}
+
+
+def archive_limiter(min_interval_s: float) -> RateLimiter | None:
+    """One shared pacer per interval, so concurrent runs/threads space out archive.org requests."""
+    if min_interval_s <= 0:
+        return None
+    if min_interval_s not in _ARCHIVE_LIMITERS:
+        _ARCHIVE_LIMITERS[min_interval_s] = RateLimiter(1.0 / min_interval_s)
+    return _ARCHIVE_LIMITERS[min_interval_s]
+
+
+def _archive_down(res: FetchResult) -> str | None:
+    if res.status == 429:
+        return "rate_limited"
+    if (res.status is None or res.status >= 500
+            or (res.status == 200 and b"internet archive: temporarily offline" in res.body[:4000].lower())):
+        return "unavailable"
+    return None
+
+
 class Wayback:
     """Wayback Machine fallback for one run: CDX lookup of the newest HTTP-200 captures (availability
     API only when CDX itself fails), block-page rejection, a per-run request cap, at most two archive
-    requests at a time, and a circuit breaker once archive.org rate-limits us or is offline."""
+    requests at a time, and a circuit breaker once archive.org rate-limits us or is offline.
+
+    Resilience (1.7.0; all off by default here, switched on by the pipeline from settings):
+      * ``min_interval_s``: shared pacing between archive.org requests (all runs and threads);
+      * ``retries``: on 429/5xx/outage, back off (Retry-After honoured up to ``retry_after_cap_s``,
+        else exponential with jitter) and try again; every real hit counts toward ``max_requests``;
+      * ``resumes``: when archive.org still refuses after the backoff, pause (Retry-After or
+        ``pause_s``) and probe once more before the breaker opens for the rest of the run;
+      * ``daily_max``: a cap on real archive.org requests per day across runs (``ArchiveBudget``)."""
 
     def __init__(self, fetcher: Fetcher, *, max_requests: int = WAYBACK_MAX_REQUESTS,
-                 captures: int = WAYBACK_CAPTURES):
+                 captures: int = WAYBACK_CAPTURES, min_interval_s: float = 0.0, retries: int = 0,
+                 retry_after_cap_s: float = 120.0, resumes: int = 0, pause_s: float = 60.0,
+                 daily_max: int = 0, budget: ArchiveBudget | None = None, sleep=time.sleep,
+                 limiter: RateLimiter | None = None):
         self.fetcher = fetcher
         self.max_requests = max_requests
         self.captures = captures
-        self.requests = 0
+        self.requests = 0                   # real HTTP requests to archive.org (retries included)
         self.down: str | None = None        # "rate_limited" | "unavailable" once tripped
+        self.capped: str | None = None      # "run" | "daily" once a cap stops us
+        self.retries, self.retry_after_cap_s = max(0, retries), retry_after_cap_s
+        self.resumes, self.pause_s = max(0, resumes), pause_s
+        self.paused = 0                     # pause-and-probe cycles used
+        self.daily_max = daily_max
+        self.budget = budget or ARCHIVE_BUDGET
+        self._sleep = sleep
+        self._limiter = limiter if limiter is not None else archive_limiter(min_interval_s)
         self._lock = threading.Lock()
-        self._slots = threading.BoundedSemaphore(2)
+        self._slots = threading.BoundedSemaphore(2 if self._limiter is None else 1)
+        self._own_retries = isinstance(fetcher, HttpFetcher)
 
-    def _get(self, url: str, **kw) -> FetchResult | None:
+    def _hit(self, url: str, **kw) -> FetchResult | None:
+        """One real request, or None when a cap or the breaker stops it."""
         with self._lock:
-            if self.down or self.requests >= self.max_requests:
+            if self.down:
+                return None
+            if self.requests >= self.max_requests:
+                self.capped = self.capped or "run"
+                return None
+            if not self.budget.take(self.daily_max):
+                self.capped = self.capped or "daily"
                 return None
             self.requests += 1
+        if self._limiter is not None:
+            self._limiter.wait()
+        if self._own_retries:
+            kw["retries"] = 0          # we back off ourselves, and count every hit
+        return self.fetcher.get(url, **kw)
+
+    def _get(self, url: str, **kw) -> FetchResult | None:
         with self._slots:
-            return self.fetcher.get(url, **kw)
+            res = self._hit(url, **kw)
+            attempt = 0
+            while res is not None and _archive_down(res):
+                if attempt < self.retries:
+                    attempt += 1
+                    self._sleep(backoff_s(attempt, base=2.0, cap=self.retry_after_cap_s,
+                                          retry_after=res.retry_after))
+                elif self.paused < self.resumes:
+                    self.paused += 1
+                    attempt = self.retries     # one probe after the pause, then the breaker
+                    self._sleep(min(self.retry_after_cap_s, res.retry_after or self.pause_s))
+                else:
+                    break
+                nxt = self._hit(url, **kw)
+                if nxt is None:
+                    break
+                res = nxt
+            return res
 
     def _trip(self, res: FetchResult) -> str | None:
         """Mark archive.org down for the rest of the run on 429/5xx or an outage page."""
-        why = None
-        if res.status == 429:
-            why = "rate_limited"
-        elif (res.status is None or res.status >= 500
-              or (res.status == 200 and b"internet archive: temporarily offline" in res.body[:4000].lower())):
-            why = "unavailable"
+        why = _archive_down(res)
         if why:
             with self._lock:
                 self.down = self.down or why
@@ -413,8 +634,12 @@ class Wayback:
 
     def _stopped(self, att: ArchiveAttempt) -> ArchiveAttempt:
         att.outcome = self.down or "capped"
-        att.note = (f"Wayback skipped: archive.org {'rate-limited us' if self.down == 'rate_limited' else 'unavailable'}"
-                    if self.down else f"Wayback skipped: per-run cap of {self.max_requests} archive requests reached")
+        if self.down:
+            att.note = f"Wayback skipped: archive.org {'rate-limited us' if self.down == 'rate_limited' else 'unavailable'}"
+        elif self.capped == "daily":
+            att.note = f"Wayback skipped: daily cap of {self.daily_max} archive requests reached"
+        else:
+            att.note = f"Wayback skipped: per-run cap of {self.max_requests} archive requests reached"
         return att
 
     def lookup(self, url: str, att: ArchiveAttempt) -> list[str] | None:

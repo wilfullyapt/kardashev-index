@@ -210,11 +210,27 @@ a cache, re-synced after a run or a retraction):
   403 page captured as-is) is never chosen; `archive.org/wayback/available` is used only when CDX itself
   fails (the old `web.archive.org/wayback/available` endpoint answers 404). A copy that reads as a block
   page ("Access Denied", Cloudflare/captcha walls) is skipped for the next capture. At most
-  `FETCH_WAYBACK_MAX_REQUESTS` archive requests per run (default 16), two at a time; a 429, 5xx,
-  timeout or the "Temporarily Offline" page (served with HTTP 200) stops the fallback for the rest of
-  the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
+  `FETCH_WAYBACK_MAX_REQUESTS` real archive.org requests per run (default 16, retries included) and
+  `FETCH_WAYBACK_DAILY_MAX` per day; from 1.7.0 requests are paced (`FETCH_WAYBACK_MIN_INTERVAL_S`,
+  one at a time, shared by all runs). A 429, 5xx, timeout or the "Temporarily Offline" page (served
+  with HTTP 200) is retried with backoff (`Retry-After` honoured up to
+  `FETCH_WAYBACK_RETRY_AFTER_CAP_S`), then after one pause-and-probe (`FETCH_WAYBACK_RESUMES`) it
+  stops the fallback for the rest of the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
   not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
   copy was used, appended to the source's reason (shown on the admin run page).
+- **Alternative sources** (pipeline-v2.13): the edgar stage adds the latest original 10-K / 20-F /
+  40-F primary document (from `data.sec.gov/submissions`) as a candidate (`origin: filing`, primary,
+  fetched with `SEC_EDGAR_USER_AGENT`; `EDGAR_ANNUAL_REPORT`). When no energy-tagged source was read,
+  or the company's own energy disclosure couldn't be read, the fetch stage looks the company up on
+  ResponsibilityReports.com (`app/pipeline/registries.py`, `FETCH_REGISTRY_FALLBACK`) and adds its
+  newest report PDF (`origin: registry`; the "most recent" report unless it is locked, else the newest
+  archived one). CDP responses are not looked up (browser-built pages, mostly behind an account).
+  Figures from both are quote-verified like any other source.
+- **Embedded page data** (pipeline-v2.10, `app/pipeline/fetch.py` `embedded_json_texts`): when an
+  HTML page's visible text is under 2,000 characters (a JavaScript shell), prose strings from its
+  Next.js `__NEXT_DATA__`, JSON-LD and other `application/json` scripts are appended to the stored
+  text (deduplicated; URLs, ids and code skipped; at most 200,000 characters). Quotes are verified
+  against that text like any other. No headless browser is used.
 - **Report-PDF discovery** (pipeline-v2.8, `app/pipeline/discover.py`): when a report landing page
   (research said it covers energy, or its path/title names impact / sustainability / ESG / climate /
   CDP / energy) could be read, from the original or its Wayback copy, its PDF links that name a
@@ -253,7 +269,9 @@ a cache, re-synced after a run or a retraction):
   `summary.energy_unreadable` lists the sources), it never takes the "no energy figure found"
   (formerly "energy undisclosed") basis, an `energy_unreadable` alert is raised (admin banner,
   `/internal/alerts`, webhook) and a follow-up run is queued (`trigger: energy_retry`,
-  `next_attempt_at` = now + `ENERGY_RETRY_DELAY_HOURS`). A manual re-run starts that queued retry
+  `next_attempt_at` = now + the n-th of `ENERGY_RETRY_DELAYS_HOURS`, default 6/24/72 h, at most
+  `ENERGY_RETRY_MAX` = 3 in a row; from pipeline-v2.12 each retry carries the unreadable URLs and a
+  strategy: `archive_first`, `browser_first`, `standard`). A manual re-run starts that queued retry
   immediately. Dead links (404/410) and soft 404s don't count.
   **Which sources count** (pipeline-v2.9, `app/pipeline/disclosure.py`): only the company's own
   domain (subdomains included) or a disclosure registry (cdp.net, responsibilityreports.com);
@@ -278,6 +296,13 @@ a cache, re-synced after a run or a retraction):
   a future `next_attempt_at` (e.g. a 24 h energy retry), with `next_scheduled_at` the earliest.
   `queue_depth` equals `queued_now` (it used to include future retries); `retries_scheduled` is a
   deprecated alias of `scheduled`.
+  Observability (1.7.0, additive, cached `OBS_CACHE_S` = 60 s): `observability.runs_7d` (runs finished
+  in the last `OBS_WINDOW_DAYS` = 7 days by outcome: `succeeded`, `degraded`, `energy_unreadable`,
+  `withheld`, `failed:<error_type>`), `observability.hosts_7d` (the 10 hosts whose sources failed most,
+  with counts such as `dead:403`, `thin`, `archive:rate_limited`), `observability.retry_claims_without_queued_run`
+  (companies whose public reason says "retry scheduled" with nothing queued; should be empty) and
+  `observability.archive` (`used_today` / `daily_max` real archive.org requests). An error here never
+  changes the status code (`observability.error` instead).
 
 ## Unchanged
 
@@ -296,13 +321,19 @@ a cache, re-synced after a run or a retraction):
 | `JUDGE_MAX_SOURCES` | `12` | candidate sources fetched per run |
 | `RANK_MIN_COVERAGE` / `RANK_MIN_MEASURED` | `0.6` / `0.3` | weight that must be scored to be ranked |
 | `RANK_MIN_MEASURED_SHARE` / `RANK_MIN_CONFIDENCE` | `0.4` / `0.2` | ranked only if measured share of scored weight and confidence are strictly above these |
-| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAY_HOURS` / `ENERGY_RETRY_MAX` | `1` / `24` / `1` | when an energy source was found but couldn't be read: schedule a follow-up run this many hours later, at most this many in a row per company (each is a normal paid run) |
+| `ENERGY_RETRY_ENABLED` / `ENERGY_RETRY_DELAYS_HOURS` / `ENERGY_RETRY_MAX` | `1` / `6,24,72` / `3` | when an energy source was found but couldn't be read: schedule follow-up runs after these delays (retry n waits the n-th value; the last repeats), at most this many in a row per company; each retry fetches the unreadable documents differently (Wayback copy first, then browser headers first, then the normal order). Each is a normal paid run. `ENERGY_RETRY_DELAY_HOURS` (pre-1.7.0) still works: when set and `ENERGY_RETRY_DELAYS_HOURS` isn't, it applies to every retry |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | `64000` / `20000` | document text sent to the extract stage (total / per source) |
 | `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
+| `FETCH_UA_STRATEGY` / `FETCH_BOT_USER_AGENT` | `honest_first` / `KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)` | header profile: ask as the declared bot first, retry once with browser headers on 401/403/406 and remember per host what worked (`browser` = the pre-1.7.0 behaviour); the bot User-Agent string |
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
+| `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | `1.5` / `2` / `120` | seconds between archive.org requests (shared by all runs, one at a time); backoff retries on 429/5xx/outage; longest `Retry-After` honoured |
+| `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | `1` / `60` / `400` | pause-and-probe cycles before the breaker opens for the run; pause when no `Retry-After` is sent; real archive.org requests per day across runs (`0` = no cap) |
+| `FETCH_DEFER_TRANSIENT` | `1` | defer a run (re-queued via `RUN_RETRY_DELAYS_MIN`, up to `RUN_MAX_ATTEMPTS`) when the company's energy disclosure, or every source, failed only transiently (429/5xx, timeout, or a refused page whose Wayback fallback was rate-limited/down/capped); the final attempt completes as before |
+| `OBS_CACHE_S` / `OBS_WINDOW_DAYS` | `60` / `7` | `/health` observability: cache lifetime (seconds) and the window for run outcomes and failing hosts |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
+| `EDGAR_ANNUAL_REPORT` / `FETCH_REGISTRY_FALLBACK` | `1` / `1` | add the latest 10-K / 20-F / 40-F text from SEC EDGAR as a candidate source; when no energy source could be read, look the company up on ResponsibilityReports.com and add its newest report PDF |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
 | `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
 | `LARGE_PDF_RANGE_BUDGET_MB` / `LARGE_PDF_MAX_DOWNLOAD_MB` | `48` / `200` | bytes transferred via HTTP Range; largest streamed download (needs 2× free disk) |

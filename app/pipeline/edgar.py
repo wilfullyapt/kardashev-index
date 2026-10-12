@@ -18,6 +18,9 @@ TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
 FILING_INDEX_URL = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{accn_nodash}/"
 ANNUAL_FORMS = {"10-K", "10-K/A", "20-F", "40-F", "10-KT"}
+SUBMISSIONS_URL = "https://data.sec.gov/submissions/CIK{cik}.json"
+DOCUMENT_URL = "https://www.sec.gov/Archives/edgar/data/{cik_int}/{accn_nodash}/{doc}"
+ANNUAL_REPORT_FORMS = ("10-K", "20-F", "40-F")      # original annual reports (amendments are often partial)
 
 CONCEPTS = {
     "capex": [
@@ -148,6 +151,28 @@ class EdgarClient:
 
     def company_facts(self, cik: str) -> dict:
         return self._json(FACTS_URL.format(cik=cik))
+
+    def latest_annual_report(self, cik: str) -> dict | None:
+        """The newest 10-K / 20-F / 40-F primary document: {url, form, filed, accn}, or None."""
+        return latest_annual_report(self._json(SUBMISSIONS_URL.format(cik=cik), max_bytes=20_000_000), cik)
+
+
+def latest_annual_report(submissions: dict, cik: str) -> dict | None:
+    recent = ((submissions or {}).get("filings") or {}).get("recent") or {}
+    forms = recent.get("form") or []
+    for i, form in enumerate(forms):
+        if form not in ANNUAL_REPORT_FORMS:
+            continue
+        try:
+            accn, doc = recent["accessionNumber"][i], recent["primaryDocument"][i]
+            filed = (recent.get("filingDate") or [""] * len(forms))[i]
+        except (KeyError, IndexError):
+            return None
+        if not doc:
+            continue
+        return {"url": DOCUMENT_URL.format(cik_int=int(cik), accn_nodash=accn.replace("-", ""), doc=doc),
+                "form": form, "filed": filed, "accn": accn}
+    return None
 
 
 def _days(start: str, end: str) -> int:
