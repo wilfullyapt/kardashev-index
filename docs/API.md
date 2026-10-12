@@ -218,6 +218,14 @@ a cache, re-synced after a run or a retraction):
   stops the fallback for the rest of the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
   not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
   copy was used, appended to the source's reason (shown on the admin run page).
+- **Alternative sources** (pipeline-v2.13): the edgar stage adds the latest original 10-K / 20-F /
+  40-F primary document (from `data.sec.gov/submissions`) as a candidate (`origin: filing`, primary,
+  fetched with `SEC_EDGAR_USER_AGENT`; `EDGAR_ANNUAL_REPORT`). When no energy-tagged source was read,
+  or the company's own energy disclosure couldn't be read, the fetch stage looks the company up on
+  ResponsibilityReports.com (`app/pipeline/registries.py`, `FETCH_REGISTRY_FALLBACK`) and adds its
+  newest report PDF (`origin: registry`; the "most recent" report unless it is locked, else the newest
+  archived one). CDP responses are not looked up (browser-built pages, mostly behind an account).
+  Figures from both are quote-verified like any other source.
 - **Embedded page data** (pipeline-v2.10, `app/pipeline/fetch.py` `embedded_json_texts`): when an
   HTML page's visible text is under 2,000 characters (a JavaScript shell), prose strings from its
   Next.js `__NEXT_DATA__`, JSON-LD and other `application/json` scripts are appended to the stored
@@ -325,6 +333,7 @@ a cache, re-synced after a run or a retraction):
 | `FETCH_DEFER_TRANSIENT` | `1` | defer a run (re-queued via `RUN_RETRY_DELAYS_MIN`, up to `RUN_MAX_ATTEMPTS`) when the company's energy disclosure, or every source, failed only transiently (429/5xx, timeout, or a refused page whose Wayback fallback was rate-limited/down/capped); the final attempt completes as before |
 | `OBS_CACHE_S` / `OBS_WINDOW_DAYS` | `60` / `7` | `/health` observability: cache lifetime (seconds) and the window for run outcomes and failing hosts |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
+| `EDGAR_ANNUAL_REPORT` / `FETCH_REGISTRY_FALLBACK` | `1` / `1` | add the latest 10-K / 20-F / 40-F text from SEC EDGAR as a candidate source; when no energy source could be read, look the company up on ResponsibilityReports.com and add its newest report PDF |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
 | `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
 | `LARGE_PDF_RANGE_BUDGET_MB` / `LARGE_PDF_MAX_DOWNLOAD_MB` | `48` / `200` | bytes transferred via HTTP Range; largest streamed download (needs 2× free disk) |

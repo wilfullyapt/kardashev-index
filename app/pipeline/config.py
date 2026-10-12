@@ -57,6 +57,10 @@ class Settings:
     # Report-PDF discovery: PDF links followed from readable report pages (per page / per run; 0 = off).
     discover_per_page: int = field(default_factory=lambda: _i("FETCH_DISCOVER_PER_PAGE", 2))
     discover_max: int = field(default_factory=lambda: _i("FETCH_DISCOVER_MAX", 4))
+    # Alternative sources (1.7.0): the latest 10-K/20-F text from SEC EDGAR as a candidate, and a
+    # ResponsibilityReports.com lookup when no energy source could be read from the company itself.
+    edgar_annual_report: bool = field(default_factory=lambda: _b("EDGAR_ANNUAL_REPORT", True))
+    registry_fallback: bool = field(default_factory=lambda: _b("FETCH_REGISTRY_FALLBACK", True))
     # Stored source text. Large enough that a resumed run re-verifies quotes against the full document.
     snapshot_max_chars: int = field(default_factory=lambda: _i("SNAPSHOT_MAX_CHARS", 1_000_000))
     extract_max_chars: int = field(default_factory=lambda: _i("EXTRACT_MAX_CHARS", 64_000))

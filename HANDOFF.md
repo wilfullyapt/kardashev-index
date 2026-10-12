@@ -223,6 +223,7 @@ All optional; Default (not in `render.yaml`).
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | pause-and-probe cycles before the run's breaker opens; pause without `Retry-After`; real archive.org requests per day (`0` = off) | `1` / `60` / `400` |
 | `FETCH_DEFER_TRANSIENT` | defer a run instead of finishing it when the energy disclosure (or every source) failed only transiently; final attempt completes as before | `1` |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | report PDFs followed per page / per run (`0` = off) | `2` / `4` |
+| `EDGAR_ANNUAL_REPORT` / `FETCH_REGISTRY_FALLBACK` | latest 10-K/20-F text from SEC as a source; ResponsibilityReports.com report when no energy source could be read | `1` / `1` |
 | `SNAPSHOT_MAX_CHARS` | fetched text stored per source | `1000000` |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | text sent to extraction in total / per source | `64000` / `20000` |
 | `LARGE_PDF_ENABLED` | read over-cap PDFs in a capped child process | `1` |

@@ -32,6 +32,7 @@ from ..models import (CategoryScore, Company, Evidence, IngestLog, JudgmentRun, 
 from . import evidence as ev
 from . import methodology as meth
 from . import prompts as P
+from . import registries
 from . import semantics as sem
 from .aggregate import aggregate
 from .config import Settings, WorkerSettings, code_version, worker_settings
@@ -431,6 +432,8 @@ def stage_edgar(ctx: RunContext):
                     f"{': ' + chk['note'] if chk.get('note') else ''})")
             return
         client = _edgar_client(ctx)
+        if ctx.s.edgar_annual_report:
+            _add_annual_report(ctx, st, client, cik)
         try:
             facts = client.company_facts(cik)
         except EdgarError as err:
@@ -462,6 +465,38 @@ def stage_edgar(ctx: RunContext):
                 n += 1
         st.detail.update({"cik": cik, "registrant": title, "figures": n,
                           "concepts": {m: (s[0].concept if s else None) for m, s in fin.items()}})
+
+
+def _add_annual_report(ctx: RunContext, st: Stage, client: EdgarClient, cik: str):
+    """The latest 10-K / 20-F text as a candidate source (SEC never bot-walls a declared client;
+    annual reports often state electricity use, data-center capacity and capex plans)."""
+    try:
+        doc = client.latest_annual_report(cik)
+    except EdgarError as err:
+        st.detail["annual_report"] = f"not found: {err}"[:300]
+        return
+    if not doc:
+        st.detail["annual_report"] = "no 10-K / 20-F / 40-F in recent filings"
+        return
+    st.detail["annual_report"] = doc
+    if any(c["url"] == doc["url"] for c in ctx.candidates):
+        return
+    cand = {"url": doc["url"], "title": f"{doc['form']} annual report (SEC EDGAR, filed {doc['filed']})",
+            "covers": ["energy", "growth", "compute"], "origin": "filing",
+            "why": f"latest {doc['form']} filed with the SEC ({doc['accn']})"}
+    ctx.candidates.append(cand)
+    st.cp["filing_candidates"] = [cand]
+
+
+def _needs_registry(results, domain: str | None) -> bool:
+    """No energy-tagged source was read, or the company's own energy disclosure couldn't be read."""
+    read = any(a.status == "ok" and "energy" in (c.get("covers") or ()) and c.get("origin") != "filing"
+               for c, _res, a, _o, _att in results)
+    if not read:
+        return True
+    return any(a.status in ("dead", "error", "thin") and (res.status is None or res.status not in (404, 410))
+               and energy_disclosure(c["url"], c.get("title"), a.status, c.get("covers") or (), c.get("why"), domain)
+               for c, res, a, _o, _att in results)
 
 
 def _discover(ctx: RunContext, results) -> list[dict]:
@@ -554,6 +589,20 @@ def stage_fetch(ctx: RunContext):
             ctx.candidates.extend(discovered)
             st.cp["discovered"] = discovered
             st.detail["discovered"] = [{"url": c["url"], "from": c["found_on"]} for c in discovered]
+        if ctx.s.registry_fallback and _needs_registry(results, ctx.entity.get("domain")):
+            name = ctx.entity.get("official_name") or ctx.company.official_name or ctx.company.canonical_name
+            known = {c["url"] for c in ctx.candidates}
+            try:
+                registry = [c for c in registries.responsibility_reports(ctx.deps.fetcher, name or "")
+                            if c["url"] not in known]
+            except Exception as e:     # a registry lookup must never fail the run
+                registry = []
+                st.detail["registry_error"] = f"{type(e).__name__}: {e}"[:300]
+            if registry:
+                results += [work(c) for c in registry]
+                ctx.candidates.extend(registry)
+                st.cp["registry"] = registry
+                st.detail["registry"] = [c["url"] for c in registry]
         counts: dict[str, int] = {}
         domain = ctx.entity.get("domain")
         seen_sha: dict[str, int] = {}
@@ -1077,8 +1126,11 @@ def _restore(ctx: RunContext):
         ctx.entity = dict(cp.get("entity") or {})
     if ctx.done("research"):
         ctx.candidates = list(cp.get("candidates") or [])
+    if ctx.done("edgar"):
+        known = {c["url"] for c in ctx.candidates}
+        ctx.candidates += [c for c in cp.get("filing_candidates") or [] if c["url"] not in known]
     if ctx.done("fetch"):
-        ctx.candidates += list(cp.get("discovered") or [])
+        ctx.candidates += list(cp.get("discovered") or []) + list(cp.get("registry") or [])
     sources = {s.id: s for s in db.query(Source).filter(Source.run_id == run_id)}
     if ctx.done("edgar"):
         for e in db.query(Evidence).filter(Evidence.run_id == run_id, Evidence.kind == "filing",

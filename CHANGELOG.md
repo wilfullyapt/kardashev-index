@@ -10,6 +10,33 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.7.0] — Alternative sources: SEC annual reports and ResponsibilityReports.com
+
+**Component change: pipeline-v2.12 → pipeline-v2.13** (prompts-v2.5, weights-v1, rubrics-v1
+unchanged). Scoring math and ranking thresholds are unchanged; runs can now draw verified figures
+from two more kinds of source. **Methodology note:** a registry copy can be an older report than the
+company's current one (e.g. a 2022 report when the newest is locked); its figures carry their own
+period like any other.
+
+### Added
+- SEC annual report as a source (`app/pipeline/edgar.py` `latest_annual_report`, runner
+  `_add_annual_report`): the edgar stage reads `data.sec.gov/submissions/CIK….json` and adds the
+  newest original 10-K / 20-F / 40-F primary document as a candidate (`origin: filing`, primary,
+  fetched under `SEC_EDGAR_USER_AGENT` and SEC's rate limit). Annual reports often state
+  electricity use, capacity and capex plans, and sec.gov doesn't bot-wall a declared client.
+- Registry fallback (`app/pipeline/registries.py`): when no energy-tagged source was read, or the
+  company's own energy disclosure couldn't be read, the company is looked up on
+  ResponsibilityReports.com and its newest report PDF is fetched (`origin: registry`; the "most
+  recent" report unless locked, else the newest archived one). Lookup failures never fail a run.
+- CDP is **not** looked up automatically (its response pages are built in the browser and mostly
+  need an account); cdp.net pages found by research are still fetched and count as a registry.
+- `EDGAR_ANNUAL_REPORT` and `FETCH_REGISTRY_FALLBACK` (both default `1`).
+
+### Cost
+- No paid infrastructure. Up to 3 extra HTTP requests (SEC submissions + document, registry search +
+  page + PDF) per run; a 10-K adds text competing for the same extraction budget
+  (`EXTRACT_MAX_CHARS`), so xAI cost per run is unchanged.
+
 ## [1.6.0] — Escalating energy retries with a different strategy each time
 
 **Component change: pipeline-v2.11 → pipeline-v2.12** (prompts-v2.5, weights-v1, rubrics-v1
