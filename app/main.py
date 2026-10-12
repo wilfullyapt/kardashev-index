@@ -52,7 +52,9 @@ def build_deps() -> Deps:
                     search_timeout_s=cfg.search_timeout_s, max_retries=cfg.max_retries,
                     backoff_max_s=cfg.backoff_max_s) if XAI_API_KEY else None
     return Deps(llm=llm, fetcher=HttpFetcher(timeout_s=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes,
-                                             retries=cfg.fetch_retries, sec_user_agent=cfg.sec_user_agent),
+                                             retries=cfg.fetch_retries, sec_user_agent=cfg.sec_user_agent,
+                                             ua_strategy=cfg.fetch_ua_strategy,
+                                             bot_user_agent=cfg.fetch_bot_user_agent),
                 settings=cfg)
 
 

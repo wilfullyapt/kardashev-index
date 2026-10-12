@@ -217,6 +217,7 @@ All optional; Default (not in `render.yaml`).
 |---|---|---|
 | `SEC_EDGAR_USER_AGENT` | contact string sent to sec.gov (SEC requires it); without it EDGAR is skipped and admin shows an alert. **Set** (Render secret; `/health` reports `sec_edgar_user_agent: true`) | none |
 | `FETCH_TIMEOUT_S` / `FETCH_MAX_BYTES` / `FETCH_RETRIES` | per-request timeout, download cap, retries | `20` / `30000000` / `2` |
+| `FETCH_UA_STRATEGY` / `FETCH_BOT_USER_AGENT` | `honest_first`: declared bot first, browser headers once on 401/403/406, per-host memory (`browser` = pre-1.4.0); bot User-Agent string | `honest_first` / `KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)` |
 | `FETCH_WAYBACK` / `FETCH_WAYBACK_MAX_REQUESTS` | Wayback fallback on/off; archive.org requests per run | `1` / `16` |
 | `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | archive.org pacing (seconds between requests, all runs), backoff retries on 429/5xx, longest `Retry-After` honoured | `1.5` / `2` / `120` |
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | pause-and-probe cycles before the run's breaker opens; pause without `Retry-After`; real archive.org requests per day (`0` = off) | `1` / `60` / `400` |

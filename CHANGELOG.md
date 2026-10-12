@@ -10,6 +10,27 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.4.0] — Per-host User-Agent strategy
+
+No scoring change (pipeline-v2.10, prompts-v2.5, weights-v1, rubrics-v1 unchanged): the same pages
+are judged by the same rules; fewer of them are refused.
+
+### Changed
+- Fetching (`app/pipeline/fetch.py` `HttpFetcher`): non-SEC hosts are now asked first as an honest,
+  identifiable crawler (`KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)`, minimal
+  headers). On 401/403/406 the request is repeated once with the browser headers used before; the
+  profile that got through is remembered per host (`HostProfiles`, in process, 7-day expiry) and
+  tried first next time. SEC hosts keep `SEC_EDGAR_USER_AGENT`; a caller's own User-Agent wins.
+  Each answer records the profile used (`FetchResult.profile`).
+
+### Added
+- `FETCH_UA_STRATEGY` (`honest_first` default; `browser` restores the pre-1.4.0 behaviour) and
+  `FETCH_BOT_USER_AGENT` (override the bot string). Documented in docs/API.md and HANDOFF.md.
+
+### Note
+- A host that blocks bots costs one extra request the first time per process (restarts forget).
+  The large-PDF reader keeps its browser headers.
+
 ## [1.3.0] — Read JavaScript-built pages' embedded data
 
 **Component change: pipeline-v2.9 → pipeline-v2.10** (prompts-v2.5, weights-v1, rubrics-v1

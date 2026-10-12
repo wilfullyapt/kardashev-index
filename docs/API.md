@@ -316,6 +316,7 @@ a cache, re-synced after a run or a retraction):
 | `SNAPSHOT_MAX_CHARS` | `1000000` | fetched text stored per source (quotes are verified against it on resume) |
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
+| `FETCH_UA_STRATEGY` / `FETCH_BOT_USER_AGENT` | `honest_first` / `KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)` | header profile: ask as the declared bot first, retry once with browser headers on 401/403/406 and remember per host what worked (`browser` = the pre-1.4.0 behaviour); the bot User-Agent string |
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
 | `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | `1.5` / `2` / `120` | seconds between archive.org requests (shared by all runs, one at a time); backoff retries on 429/5xx/outage; longest `Retry-After` honoured |
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | `1` / `60` / `400` | pause-and-probe cycles before the breaker opens for the run; pause when no `Retry-After` is sent; real archive.org requests per day across runs (`0` = no cap) |

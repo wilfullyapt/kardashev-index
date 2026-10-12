@@ -37,6 +37,10 @@ class Settings:
     fetch_timeout_s: float = field(default_factory=lambda: _f("FETCH_TIMEOUT_S", 20))
     fetch_max_bytes: int = field(default_factory=lambda: _i("FETCH_MAX_BYTES", 30_000_000))
     fetch_retries: int = field(default_factory=lambda: _i("FETCH_RETRIES", 2))
+    # Header profile (1.4.0): "honest_first" asks as the declared KardashevIndexBot first and retries
+    # once with browser headers on 401/403/406, remembering per host what worked; "browser" = before 1.4.0.
+    fetch_ua_strategy: str = field(default_factory=lambda: os.getenv("FETCH_UA_STRATEGY", "honest_first").strip().lower())
+    fetch_bot_user_agent: str | None = field(default_factory=lambda: os.getenv("FETCH_BOT_USER_AGENT") or None)
     # Wayback Machine fallback for sources that answer 401/403/404/410/451 (labelled "archived copy").
     wayback_enabled: bool = field(default_factory=lambda: _b("FETCH_WAYBACK", True))
     # Cap on archive.org requests (CDX lookups + copies) per run; the fallback stops early on 429/outage.

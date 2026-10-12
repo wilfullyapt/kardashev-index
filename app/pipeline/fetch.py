@@ -39,6 +39,46 @@ BROWSER_HEADERS = {
     "Sec-Fetch-Site": "none",
     "Sec-Fetch-User": "?1",
 }
+# Honest, identifiable crawler profile (1.4.0). Many CDNs block a browser User-Agent sent from a
+# non-browser HTTP client (the TLS fingerprint gives it away) more readily than a declared bot.
+BOT_USER_AGENT = "KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)"
+BOT_HEADERS = {
+    "User-Agent": BOT_USER_AGENT,
+    "Accept": BROWSER_HEADERS["Accept"],
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+}
+UA_BLOCK_STATUSES = {401, 403, 406}      # answers that mean "not you", worth one try as the other profile
+UA_STRATEGIES = ("honest_first", "browser")
+
+
+class HostProfiles:
+    """Which header profile ("bot" | "browser") last got a non-blocked answer from each host. In
+    process (single web process on Render); forgotten on restart, then re-learned with one extra
+    request per blocked host. Entries expire after ``ttl_s`` so a host that unblocks us is retried."""
+
+    def __init__(self, ttl_s: float = 7 * 86400, clock=time.monotonic):
+        self.ttl_s, self._clock = ttl_s, clock
+        self._m: dict[str, tuple[str, float]] = {}
+        self._lock = threading.Lock()
+
+    def get(self, host: str) -> str | None:
+        with self._lock:
+            v = self._m.get(host)
+            if v and self._clock() - v[1] < self.ttl_s:
+                return v[0]
+            return None
+
+    def remember(self, host: str, profile: str) -> None:
+        with self._lock:
+            self._m[host] = (profile, self._clock())
+
+    def snapshot(self) -> dict[str, str]:
+        with self._lock:
+            return {h: p for h, (p, _t) in self._m.items()}
+
+
+HOST_PROFILES = HostProfiles()
 MAX_REDIRECTS = 5
 RETRY_STATUSES = {408, 425, 429, 500, 502, 503, 504, 520, 521, 522, 523, 524}
 ARCHIVE_STATUSES = {401, 403, 404, 410, 451}
@@ -59,6 +99,10 @@ BLOCK_PAGE_RE = re.compile(
 PDF_MAX_PAGES = 400
 PDF_MAX_CHARS = 3_000_000
 _PDF_SLOTS = threading.BoundedSemaphore(2)    # bound memory: at most two PDFs parsed at once
+
+
+def _host(url: str) -> str:
+    return (urlsplit(url).hostname or "").lower()
 
 
 def is_sec_host(url: str) -> bool:
@@ -105,6 +149,7 @@ class FetchResult:
     attempts: int = 1
     archived_from: str | None = None     # original URL when this is a Wayback Machine copy
     archive_timestamp: str | None = None  # YYYYMMDDhhmmss of the snapshot
+    profile: str | None = None           # header profile that produced this answer ("bot" | "browser")
 
 
 class Fetcher(Protocol):
@@ -140,7 +185,12 @@ def check_url_allowed(url: str, resolve=socket.getaddrinfo) -> None:
 class HttpFetcher:
     def __init__(self, *, timeout_s: float = 20, max_bytes: int = 30_000_000, retries: int = 2,
                  sec_user_agent: str | None = None, transport: httpx.BaseTransport | None = None,
-                 resolve=socket.getaddrinfo, sleep=time.sleep, sec_limiter: RateLimiter | None = None):
+                 resolve=socket.getaddrinfo, sleep=time.sleep, sec_limiter: RateLimiter | None = None,
+                 ua_strategy: str = "browser", bot_user_agent: str | None = None,
+                 profiles: HostProfiles | None = None):
+        self.ua_strategy = ua_strategy if ua_strategy in UA_STRATEGIES else "browser"
+        self.bot_headers = {**BOT_HEADERS, "User-Agent": bot_user_agent or BOT_USER_AGENT}
+        self.profiles = profiles or HOST_PROFILES
         self.timeout_s = timeout_s
         self.max_bytes = max_bytes
         self.retries = max(0, retries)
@@ -154,22 +204,46 @@ class HttpFetcher:
             retries: int | None = None) -> FetchResult:
         """GET with retries for transient failures (429/5xx/timeouts/transport), backing off
         exponentially and honouring Retry-After (capped at 20 s). ``retries=0`` turns this off for
-        callers that pace and back off themselves (the Wayback fallback), so every hit is counted."""
-        res = self._get_once(url, headers=headers, max_bytes=max_bytes)
-        for attempt in range(1, (self.retries if retries is None else max(0, retries)) + 1):
+        callers that pace and back off themselves (the Wayback fallback), so every hit is counted.
+
+        Header profile (``ua_strategy="honest_first"``): non-SEC hosts are asked first as the declared
+        bot, and on 401/403/406 once more with browser headers; the profile that worked is remembered
+        per host (``HostProfiles``) and tried first next time. A caller's own User-Agent wins."""
+        retries = self.retries if retries is None else max(0, retries)
+        order = self._profiles_for(url, headers)
+        res = None
+        for i, profile in enumerate(order):
+            res = self._get_retrying(url, headers=headers, max_bytes=max_bytes, retries=retries, profile=profile)
+            res.profile = profile
+            if res.status not in UA_BLOCK_STATUSES or i == len(order) - 1:
+                if len(order) > 1 and res.status is not None and res.status not in UA_BLOCK_STATUSES:
+                    self.profiles.remember(_host(url), profile)
+                break
+        return res
+
+    def _profiles_for(self, url: str, headers: dict | None) -> list[str]:
+        if self.ua_strategy != "honest_first" or is_sec_host(url) or "User-Agent" in (headers or {}):
+            return ["browser"]
+        first = self.profiles.get(_host(url)) or "bot"
+        return [first, "browser" if first == "bot" else "bot"]
+
+    def _get_retrying(self, url, *, headers, max_bytes, retries, profile) -> FetchResult:
+        res = self._get_once(url, headers=headers, max_bytes=max_bytes, profile=profile)
+        for attempt in range(1, retries + 1):
             transient = (res.status in RETRY_STATUSES or
                          (res.status is None and res.error and not res.error.startswith("blocked")))
             if not transient:
                 break
             self._sleep(backoff_s(attempt, base=2.0, cap=20.0, retry_after=res.retry_after))
-            res = self._get_once(url, headers=headers, max_bytes=max_bytes)
+            res = self._get_once(url, headers=headers, max_bytes=max_bytes, profile=profile)
             res.attempts = attempt + 1
         return res
 
-    def _get_once(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None) -> FetchResult:
+    def _get_once(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None,
+                  profile: str = "browser") -> FetchResult:
         cap = max_bytes or self.max_bytes
         result = FetchResult(url=url)
-        hdrs = dict(BROWSER_HEADERS)
+        hdrs = dict(self.bot_headers if profile == "bot" else BROWSER_HEADERS)
         hdrs.update(headers or {})
         current = url
         try:
