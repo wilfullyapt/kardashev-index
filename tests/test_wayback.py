@@ -208,3 +208,117 @@ def test_archived_oversized_pdf_goes_to_the_large_pdf_reader_via_the_archive_url
     src = db.query(Source).filter_by(run_id=run.id, url=PDF).one()
     assert seen == [raw(ts, PDF)]
     assert src.status == "ok" and src.archive_timestamp == ts and src.archive_attempt["used"] == ts
+
+
+# ---------------------------------------------------------------- 1.1.0: pacing, backoff, pause-and-probe, budgets
+class _Seq(fakes.FakeFetcher):
+    """Answers a URL from a list of responses in turn (last one repeats)."""
+
+    def __init__(self, seqs, routes=None):
+        super().__init__(routes or {})
+        self.seqs = {k: list(v) for k, v in seqs.items()}
+
+    def get(self, url, *, headers=None, max_bytes=None):
+        if url in self.seqs:
+            self.calls.append(url)
+            seq = self.seqs[url]
+            r = seq.pop(0) if len(seq) > 1 else seq[0]
+            return r if isinstance(r, FetchResult) else FetchResult(url=url, final_url=url, status=r[0],
+                                                                    content_type=r[1], body=r[2].encode())
+        return super().get(url, headers=headers, max_bytes=max_bytes)
+
+
+def _429(retry_after=None):
+    return FetchResult(url="x", status=429, content_type="text/html", body=b"Too Many Requests",
+                       retry_after=retry_after)
+
+
+def _budget():
+    from app.pipeline.fetch import ArchiveBudget
+    return ArchiveBudget()
+
+
+def test_rate_limit_backs_off_honours_retry_after_and_recovers():
+    cdx = fakes.WAYBACK_CDX_URL(IMPACT)
+    f = _Seq({cdx: [_429(retry_after=7), (200, "application/json", F("cdx_tesla_impact.json"))]},
+             {raw("20260611033023"): IMPACT_COPY})
+    slept = []
+    wb = Wayback(f, retries=2, sleep=slept.append, budget=_budget())
+    _res, _a, att = wb.fetch(IMPACT, SourceChecker(f, probe_token=lambda: "P").assess)
+    assert att.outcome == "used" and wb.down is None
+    assert slept == [7]                       # Retry-After honoured
+    assert wb.requests == 3                   # every real hit counted: 429, CDX, copy
+
+
+def test_retry_after_is_capped():
+    cdx = fakes.WAYBACK_CDX_URL(IMPACT)
+    f = _Seq({cdx: [_429(retry_after=3600), (200, "application/json", F("cdx_empty.json"))]})
+    slept = []
+    wb = Wayback(f, retries=1, retry_after_cap_s=120, sleep=slept.append, budget=_budget())
+    _res, _a, att = wb.fetch(IMPACT, SourceChecker(f).assess)
+    assert slept == [120] and att.outcome == "not_found"
+
+
+def test_pause_and_probe_once_then_breaker_opens():
+    cdx = fakes.WAYBACK_CDX_URL(IMPACT)
+    f = _Seq({cdx: [_429()]})
+    slept = []
+    wb = Wayback(f, retries=2, resumes=1, pause_s=60, sleep=slept.append, budget=_budget())
+    _res, _a, att = wb.fetch(IMPACT, SourceChecker(f).assess)
+    assert att.outcome == "rate_limited" and wb.down == "rate_limited"
+    assert len(f.calls) == 4                  # first try, two backoff retries, one probe after the pause
+    assert slept[-1] == 60 and len(slept) == 3
+    _r, _a, att2 = wb.fetch(PDF, SourceChecker(f).assess)
+    assert att2.outcome == "rate_limited" and len(f.calls) == 4     # breaker open for the rest of the run
+
+
+def test_retries_count_toward_the_per_run_cap():
+    cdx = fakes.WAYBACK_CDX_URL(IMPACT)
+    f = _Seq({cdx: [_429()]})
+    wb = Wayback(f, retries=5, max_requests=3, sleep=lambda s: None, budget=_budget())
+    _res, _a, _att = wb.fetch(IMPACT, SourceChecker(f).assess)
+    assert len(f.calls) == 3 and wb.requests == 3
+
+
+def test_daily_budget_stops_archive_requests():
+    budget = _budget()
+    routes = {fakes.WAYBACK_CDX_URL(IMPACT): (200, "application/json", F("cdx_empty.json"))}
+    f = fakes.FakeFetcher(routes)
+    Wayback(f, daily_max=1, budget=budget).fetch(IMPACT, SourceChecker(f).assess)
+    _res, _a, att = Wayback(f, daily_max=1, budget=budget).fetch(IMPACT, SourceChecker(f).assess)
+    assert att.outcome == "capped" and "daily cap of 1" in att.note and len(f.calls) == 1
+
+
+def test_daily_budget_resets_each_utc_day():
+    import time as _t
+
+    from app.pipeline.fetch import ArchiveBudget
+    days = [_t.gmtime(0), _t.gmtime(0), _t.gmtime(86400)]
+    b = ArchiveBudget(clock=lambda: days.pop(0))
+    assert b.take(1) and not b.take(1) and b.take(1)
+
+
+def test_http_fetcher_inner_retries_are_off_for_archive_requests():
+    from app.pipeline.fetch import HttpFetcher
+
+    class Spy(HttpFetcher):
+        def __init__(self):
+            super().__init__(retries=2)
+            self.kw = []
+
+        def get(self, url, **kw):
+            self.kw.append(kw)
+            return FetchResult(url=url, status=200, content_type="application/json", body=b"[]")
+
+    spy = Spy()
+    Wayback(spy, budget=_budget(), limiter=None).fetch(IMPACT, lambda r: None)
+    assert spy.kw and all(k.get("retries") == 0 for k in spy.kw)
+
+
+def test_pacer_spaces_requests():
+    from app.pipeline.fetch import RateLimiter
+    t, slept = [0.0], []
+    lim = RateLimiter(1 / 1.5, clock=lambda: t[0], sleep=slept.append)
+    lim.wait()
+    lim.wait()
+    assert slept == [1.5]

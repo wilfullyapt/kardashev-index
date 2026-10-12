@@ -150,11 +150,13 @@ class HttpFetcher:
         self._sleep = sleep
         self._sec = sec_limiter or SEC_LIMITER
 
-    def get(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None) -> FetchResult:
+    def get(self, url: str, *, headers: dict | None = None, max_bytes: int | None = None,
+            retries: int | None = None) -> FetchResult:
         """GET with retries for transient failures (429/5xx/timeouts/transport), backing off
-        exponentially and honouring Retry-After (capped at 20 s)."""
+        exponentially and honouring Retry-After (capped at 20 s). ``retries=0`` turns this off for
+        callers that pace and back off themselves (the Wayback fallback), so every hit is counted."""
         res = self._get_once(url, headers=headers, max_bytes=max_bytes)
-        for attempt in range(1, self.retries + 1):
+        for attempt in range(1, (self.retries if retries is None else max(0, retries)) + 1):
             transient = (res.status in RETRY_STATUSES or
                          (res.status is None and res.error and not res.error.startswith("blocked")))
             if not transient:
@@ -375,37 +377,128 @@ def _why(tripped: str | None, res: FetchResult) -> str | None:
     return f"HTTP {res.status}" if res.status != 200 else None
 
 
+class ArchiveBudget:
+    """Daily cap on real archive.org requests across all runs in this process (resets at 00:00 UTC
+    and on restart; Render runs one web process, so this is effectively per service)."""
+
+    def __init__(self, clock=lambda: time.gmtime()):
+        self._clock = clock
+        self._day: str | None = None
+        self.used = 0
+        self._lock = threading.Lock()
+
+    def take(self, limit: int | None) -> bool:
+        if not limit or limit <= 0:
+            return True
+        with self._lock:
+            day = time.strftime("%Y-%m-%d", self._clock())
+            if day != self._day:
+                self._day, self.used = day, 0
+            if self.used >= limit:
+                return False
+            self.used += 1
+            return True
+
+
+ARCHIVE_BUDGET = ArchiveBudget()
+_ARCHIVE_LIMITERS: dict[float, RateLimiter] = {}
+
+
+def archive_limiter(min_interval_s: float) -> RateLimiter | None:
+    """One shared pacer per interval, so concurrent runs/threads space out archive.org requests."""
+    if min_interval_s <= 0:
+        return None
+    if min_interval_s not in _ARCHIVE_LIMITERS:
+        _ARCHIVE_LIMITERS[min_interval_s] = RateLimiter(1.0 / min_interval_s)
+    return _ARCHIVE_LIMITERS[min_interval_s]
+
+
+def _archive_down(res: FetchResult) -> str | None:
+    if res.status == 429:
+        return "rate_limited"
+    if (res.status is None or res.status >= 500
+            or (res.status == 200 and b"internet archive: temporarily offline" in res.body[:4000].lower())):
+        return "unavailable"
+    return None
+
+
 class Wayback:
     """Wayback Machine fallback for one run: CDX lookup of the newest HTTP-200 captures (availability
     API only when CDX itself fails), block-page rejection, a per-run request cap, at most two archive
-    requests at a time, and a circuit breaker once archive.org rate-limits us or is offline."""
+    requests at a time, and a circuit breaker once archive.org rate-limits us or is offline.
+
+    Resilience (1.1.0; all off by default here, switched on by the pipeline from settings):
+      * ``min_interval_s``: shared pacing between archive.org requests (all runs and threads);
+      * ``retries``: on 429/5xx/outage, back off (Retry-After honoured up to ``retry_after_cap_s``,
+        else exponential with jitter) and try again; every real hit counts toward ``max_requests``;
+      * ``resumes``: when archive.org still refuses after the backoff, pause (Retry-After or
+        ``pause_s``) and probe once more before the breaker opens for the rest of the run;
+      * ``daily_max``: a cap on real archive.org requests per day across runs (``ArchiveBudget``)."""
 
     def __init__(self, fetcher: Fetcher, *, max_requests: int = WAYBACK_MAX_REQUESTS,
-                 captures: int = WAYBACK_CAPTURES):
+                 captures: int = WAYBACK_CAPTURES, min_interval_s: float = 0.0, retries: int = 0,
+                 retry_after_cap_s: float = 120.0, resumes: int = 0, pause_s: float = 60.0,
+                 daily_max: int = 0, budget: ArchiveBudget | None = None, sleep=time.sleep,
+                 limiter: RateLimiter | None = None):
         self.fetcher = fetcher
         self.max_requests = max_requests
         self.captures = captures
-        self.requests = 0
+        self.requests = 0                   # real HTTP requests to archive.org (retries included)
         self.down: str | None = None        # "rate_limited" | "unavailable" once tripped
+        self.capped: str | None = None      # "run" | "daily" once a cap stops us
+        self.retries, self.retry_after_cap_s = max(0, retries), retry_after_cap_s
+        self.resumes, self.pause_s = max(0, resumes), pause_s
+        self.paused = 0                     # pause-and-probe cycles used
+        self.daily_max = daily_max
+        self.budget = budget or ARCHIVE_BUDGET
+        self._sleep = sleep
+        self._limiter = limiter if limiter is not None else archive_limiter(min_interval_s)
         self._lock = threading.Lock()
-        self._slots = threading.BoundedSemaphore(2)
+        self._slots = threading.BoundedSemaphore(2 if self._limiter is None else 1)
+        self._own_retries = isinstance(fetcher, HttpFetcher)
 
-    def _get(self, url: str, **kw) -> FetchResult | None:
+    def _hit(self, url: str, **kw) -> FetchResult | None:
+        """One real request, or None when a cap or the breaker stops it."""
         with self._lock:
-            if self.down or self.requests >= self.max_requests:
+            if self.down:
+                return None
+            if self.requests >= self.max_requests:
+                self.capped = self.capped or "run"
+                return None
+            if not self.budget.take(self.daily_max):
+                self.capped = self.capped or "daily"
                 return None
             self.requests += 1
+        if self._limiter is not None:
+            self._limiter.wait()
+        if self._own_retries:
+            kw["retries"] = 0          # we back off ourselves, and count every hit
+        return self.fetcher.get(url, **kw)
+
+    def _get(self, url: str, **kw) -> FetchResult | None:
         with self._slots:
-            return self.fetcher.get(url, **kw)
+            res = self._hit(url, **kw)
+            attempt = 0
+            while res is not None and _archive_down(res):
+                if attempt < self.retries:
+                    attempt += 1
+                    self._sleep(backoff_s(attempt, base=2.0, cap=self.retry_after_cap_s,
+                                          retry_after=res.retry_after))
+                elif self.paused < self.resumes:
+                    self.paused += 1
+                    attempt = self.retries     # one probe after the pause, then the breaker
+                    self._sleep(min(self.retry_after_cap_s, res.retry_after or self.pause_s))
+                else:
+                    break
+                nxt = self._hit(url, **kw)
+                if nxt is None:
+                    break
+                res = nxt
+            return res
 
     def _trip(self, res: FetchResult) -> str | None:
         """Mark archive.org down for the rest of the run on 429/5xx or an outage page."""
-        why = None
-        if res.status == 429:
-            why = "rate_limited"
-        elif (res.status is None or res.status >= 500
-              or (res.status == 200 and b"internet archive: temporarily offline" in res.body[:4000].lower())):
-            why = "unavailable"
+        why = _archive_down(res)
         if why:
             with self._lock:
                 self.down = self.down or why
@@ -413,8 +506,12 @@ class Wayback:
 
     def _stopped(self, att: ArchiveAttempt) -> ArchiveAttempt:
         att.outcome = self.down or "capped"
-        att.note = (f"Wayback skipped: archive.org {'rate-limited us' if self.down == 'rate_limited' else 'unavailable'}"
-                    if self.down else f"Wayback skipped: per-run cap of {self.max_requests} archive requests reached")
+        if self.down:
+            att.note = f"Wayback skipped: archive.org {'rate-limited us' if self.down == 'rate_limited' else 'unavailable'}"
+        elif self.capped == "daily":
+            att.note = f"Wayback skipped: daily cap of {self.daily_max} archive requests reached"
+        else:
+            att.note = f"Wayback skipped: per-run cap of {self.max_requests} archive requests reached"
         return att
 
     def lookup(self, url: str, att: ArchiveAttempt) -> list[str] | None:

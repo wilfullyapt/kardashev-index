@@ -496,7 +496,15 @@ def stage_fetch(ctx: RunContext):
             return
         checker = SourceChecker(ctx.deps.fetcher, **({"probe_token": ctx.deps.probe_token}
                                                      if ctx.deps.probe_token else {}))
-        wb = Wayback(ctx.deps.fetcher, max_requests=ctx.s.wayback_max_requests) if ctx.s.wayback_enabled else None
+        wb = None
+        if ctx.s.wayback_enabled:
+            s = ctx.s
+            # Pacing/backoff only against the real network (tests' fake fetchers answer instantly).
+            pace = ({"min_interval_s": s.wayback_min_interval_s, "retries": s.wayback_retries,
+                         "retry_after_cap_s": s.wayback_retry_after_cap_s, "resumes": s.wayback_resumes,
+                         "pause_s": s.wayback_pause_s, "daily_max": s.wayback_daily_max}
+                    if isinstance(ctx.deps.fetcher, HttpFetcher) else {})
+            wb = Wayback(ctx.deps.fetcher, max_requests=s.wayback_max_requests, **pace)
         big_pdf = ctx.deps.large_pdf or (read_large_pdf if isinstance(ctx.deps.fetcher, HttpFetcher) else None)
 
         def accept(url, res):

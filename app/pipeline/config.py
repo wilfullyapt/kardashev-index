@@ -41,6 +41,15 @@ class Settings:
     wayback_enabled: bool = field(default_factory=lambda: _b("FETCH_WAYBACK", True))
     # Cap on archive.org requests (CDX lookups + copies) per run; the fallback stops early on 429/outage.
     wayback_max_requests: int = field(default_factory=lambda: _i("FETCH_WAYBACK_MAX_REQUESTS", 16))
+    # archive.org pacing/backoff (1.1.0): seconds between archive requests (shared by all runs), backoff
+    # retries on 429/5xx (Retry-After honoured up to the cap), pause-and-probe cycles before the breaker
+    # opens for the run, the pause when no Retry-After is sent, and a daily cap on real requests (0 = off).
+    wayback_min_interval_s: float = field(default_factory=lambda: _f("FETCH_WAYBACK_MIN_INTERVAL_S", 1.5))
+    wayback_retries: int = field(default_factory=lambda: _i("FETCH_WAYBACK_RETRIES", 2))
+    wayback_retry_after_cap_s: float = field(default_factory=lambda: _f("FETCH_WAYBACK_RETRY_AFTER_CAP_S", 120))
+    wayback_resumes: int = field(default_factory=lambda: _i("FETCH_WAYBACK_RESUMES", 1))
+    wayback_pause_s: float = field(default_factory=lambda: _f("FETCH_WAYBACK_PAUSE_S", 60))
+    wayback_daily_max: int = field(default_factory=lambda: _i("FETCH_WAYBACK_DAILY_MAX", 400))
     # Report-PDF discovery: PDF links followed from readable report pages (per page / per run; 0 = off).
     discover_per_page: int = field(default_factory=lambda: _i("FETCH_DISCOVER_PER_PAGE", 2))
     discover_max: int = field(default_factory=lambda: _i("FETCH_DISCOVER_MAX", 4))

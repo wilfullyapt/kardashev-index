@@ -10,6 +10,32 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.1.0] — archive.org pacing, backoff and budgets
+
+No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged): the same
+sources are accepted or rejected by the same rules; the Wayback fallback just gives up less easily.
+
+### Changed
+- Wayback fallback (`app/pipeline/fetch.py` `Wayback`): archive.org requests are paced
+  (`FETCH_WAYBACK_MIN_INTERVAL_S`, default 1.5 s, one at a time, shared by all runs and threads);
+  a 429/5xx/outage is retried with backoff, honouring `Retry-After` up to
+  `FETCH_WAYBACK_RETRY_AFTER_CAP_S` (120 s; `FETCH_WAYBACK_RETRIES`, default 2); if archive.org
+  still refuses, the run pauses (`Retry-After` or `FETCH_WAYBACK_PAUSE_S`, 60 s) and probes once
+  more (`FETCH_WAYBACK_RESUMES`, default 1) before the breaker opens for the rest of the run.
+- Every real archive.org request now counts toward `FETCH_WAYBACK_MAX_REQUESTS` (16): the HTTP
+  client's own 429 retries are turned off for archive requests, so bursts are no longer hidden.
+
+### Added
+- `FETCH_WAYBACK_DAILY_MAX` (default 400): real archive.org requests per UTC day across all runs in
+  the process; `archive_attempt.outcome` is `capped` with a "daily cap" note when it is reached.
+- New env vars (all optional, safe defaults): `FETCH_WAYBACK_MIN_INTERVAL_S`,
+  `FETCH_WAYBACK_RETRIES`, `FETCH_WAYBACK_RETRY_AFTER_CAP_S`, `FETCH_WAYBACK_RESUMES`,
+  `FETCH_WAYBACK_PAUSE_S`, `FETCH_WAYBACK_DAILY_MAX` (documented in docs/API.md and HANDOFF.md).
+
+### Note
+- A run that meets a rate limit can now spend up to a few minutes in the fetch stage (pauses);
+  the worker heartbeat runs separately, so this is not mistaken for a stalled run.
+
 ## [1.0.1] — Honest "retry scheduled" wording
 
 No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged).

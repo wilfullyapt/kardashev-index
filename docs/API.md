@@ -210,9 +210,12 @@ a cache, re-synced after a run or a retraction):
   403 page captured as-is) is never chosen; `archive.org/wayback/available` is used only when CDX itself
   fails (the old `web.archive.org/wayback/available` endpoint answers 404). A copy that reads as a block
   page ("Access Denied", Cloudflare/captcha walls) is skipped for the next capture. At most
-  `FETCH_WAYBACK_MAX_REQUESTS` archive requests per run (default 16), two at a time; a 429, 5xx,
-  timeout or the "Temporarily Offline" page (served with HTTP 200) stops the fallback for the rest of
-  the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
+  `FETCH_WAYBACK_MAX_REQUESTS` real archive.org requests per run (default 16, retries included) and
+  `FETCH_WAYBACK_DAILY_MAX` per day; from 1.1.0 requests are paced (`FETCH_WAYBACK_MIN_INTERVAL_S`,
+  one at a time, shared by all runs). A 429, 5xx, timeout or the "Temporarily Offline" page (served
+  with HTTP 200) is retried with backoff (`Retry-After` honoured up to
+  `FETCH_WAYBACK_RETRY_AFTER_CAP_S`), then after one pause-and-probe (`FETCH_WAYBACK_RESUMES`) it
+  stops the fallback for the rest of the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
   not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
   copy was used, appended to the source's reason (shown on the admin run page).
 - **Report-PDF discovery** (pipeline-v2.8, `app/pipeline/discover.py`): when a report landing page
@@ -302,6 +305,8 @@ a cache, re-synced after a run or a retraction):
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
+| `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | `1.5` / `2` / `120` | seconds between archive.org requests (shared by all runs, one at a time); backoff retries on 429/5xx/outage; longest `Retry-After` honoured |
+| `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | `1` / `60` / `400` | pause-and-probe cycles before the breaker opens for the run; pause when no `Retry-After` is sent; real archive.org requests per day across runs (`0` = no cap) |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
 | `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
