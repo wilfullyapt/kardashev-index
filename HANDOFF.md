@@ -248,6 +248,7 @@ All optional; Default (not in `render.yaml`).
 | `SWEEP_ENABLED` / `SWEEP_HOUR_UTC` / `SWEEP_MIN_AGE_DAYS` | daily re-run of withheld / unranked companies (paid) | `1` / `10` (03:00 PDT) / `7` |
 | `SWEEP_DAILY_COST_USD` / `SWEEP_EST_RUN_USD` | daily sweep spend cap; per-run estimate | `2.0` / `0.35` |
 | `ALERT_WEBHOOK_URL` | Slack-compatible JSON webhook for failed / degraded / stuck runs. In Blueprint as a Render secret but **not set** (`/health` reports `alert_webhook: false`) | none |
+| `OBS_CACHE_S` / `OBS_WINDOW_DAYS` | `/health` observability cache lifetime (s) and window (days) for run outcomes and failing hosts | `60` / `7` |
 
 ### Local / test only
 
@@ -290,6 +291,8 @@ All optional; Default (not in `render.yaml`).
   means the worker has stalled). Provider and account: **(unknown, owner to fill)**.
 - **/health** fields: `version`, `pipeline_version`, `prompt_version`, `code_version`, and
   `worker.{alive, queued_now, scheduled, next_scheduled_at, queue_depth, last_run}`.
+  From 1.2.0 also `observability.{runs_7d, hosts_7d, retry_claims_without_queued_run, archive}`
+  (cached 60 s; see docs/API.md). A non-empty `retry_claims_without_queued_run` is a bug to report.
 
 ## 9. Monthly costs
 

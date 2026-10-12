@@ -281,6 +281,13 @@ a cache, re-synced after a run or a retraction):
   a future `next_attempt_at` (e.g. a 24 h energy retry), with `next_scheduled_at` the earliest.
   `queue_depth` equals `queued_now` (it used to include future retries); `retries_scheduled` is a
   deprecated alias of `scheduled`.
+  Observability (1.2.0, additive, cached `OBS_CACHE_S` = 60 s): `observability.runs_7d` (runs finished
+  in the last `OBS_WINDOW_DAYS` = 7 days by outcome: `succeeded`, `degraded`, `energy_unreadable`,
+  `withheld`, `failed:<error_type>`), `observability.hosts_7d` (the 10 hosts whose sources failed most,
+  with counts such as `dead:403`, `thin`, `archive:rate_limited`), `observability.retry_claims_without_queued_run`
+  (companies whose public reason says "retry scheduled" with nothing queued; should be empty) and
+  `observability.archive` (`used_today` / `daily_max` real archive.org requests). An error here never
+  changes the status code (`observability.error` instead).
 
 ## Unchanged
 
@@ -307,6 +314,7 @@ a cache, re-synced after a run or a retraction):
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
 | `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | `1.5` / `2` / `120` | seconds between archive.org requests (shared by all runs, one at a time); backoff retries on 429/5xx/outage; longest `Retry-After` honoured |
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | `1` / `60` / `400` | pause-and-probe cycles before the breaker opens for the run; pause when no `Retry-After` is sent; real archive.org requests per day across runs (`0` = no cap) |
+| `OBS_CACHE_S` / `OBS_WINDOW_DAYS` | `60` / `7` | `/health` observability: cache lifetime (seconds) and the window for run outcomes and failing hosts |
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
 | `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |

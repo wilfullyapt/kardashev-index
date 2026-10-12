@@ -16,6 +16,7 @@ from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, 
 from . import alerts as alerts_svc
 from . import runs as runs_svc
 from . import disclosure
+from . import observability
 from . import publication
 from .pipeline import methodology as meth
 from .pipeline.config import code_version, settings as pipeline_settings, worker_settings
@@ -308,6 +309,7 @@ def health():
     body = {"status": status, "service": "kardashev-index", "version": __version__,
             "pipeline_version": meth.PIPELINE_VERSION, "prompt_version": prompts.PROMPT_VERSION,
             "code_version": code_version(), "worker": w,
+            "observability": observability.cached(worker.session_factory),
             "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
                        "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
     return JSONResponse(body, status_code=503 if "db_error" in w else 200)

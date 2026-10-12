@@ -10,6 +10,23 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.2.0] — /health observability
+
+No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged). `/health` change
+is additive (new `observability` object); existing fields and status codes are unchanged.
+
+### Added
+- `/health` → `observability` (`app/observability.py`, cached `OBS_CACHE_S` = 60 s so Render's
+  frequent polling stays cheap):
+  - `runs_7d`: runs finished in the last `OBS_WINDOW_DAYS` (7) by outcome (`succeeded`,
+    `degraded`, `energy_unreadable`, `withheld`, `failed:<error_type>`);
+  - `hosts_7d`: the 10 hosts whose sources failed most, with counts by status (`dead:403`, `thin`,
+    `error`…) and Wayback outcome (`archive:rate_limited`…);
+  - `retry_claims_without_queued_run`: companies whose public reason says "retry scheduled" while
+    nothing is queued (should be empty);
+  - `archive`: real archive.org requests used today vs `FETCH_WAYBACK_DAILY_MAX`.
+- New env vars (optional): `OBS_CACHE_S` (60), `OBS_WINDOW_DAYS` (7).
+
 ## [1.1.0] — archive.org pacing, backoff and budgets
 
 No scoring change (pipeline-v2.9, prompts-v2.5, weights-v1, rubrics-v1 unchanged): the same
