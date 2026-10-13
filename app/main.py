@@ -111,6 +111,7 @@ def fmt_dur(ms) -> str:
 
 
 templates.env.filters["pt"] = fmt_pt
+templates.env.globals["is_scheduled"] = runs_svc.is_scheduled
 templates.env.filters["pt_date"] = fmt_date
 templates.env.filters["dur"] = fmt_dur
 templates.env.filters["num"] = fmt_num
@@ -1091,16 +1092,18 @@ async def rerun_judgment(
     run, created = runs_svc.enqueue_run(db, company_id, trigger="rerun", triggered_by=approver)
     body = {"company_id": company_id, "canonical_name": company.canonical_name, "rerun_by": approver,
             "run_id": run.id, "run_url": f"/internal/runs/{run.id}"}
-    if not created and run.status == "queued" and run.next_attempt_at is not None:
-        # an automatic retry is waiting: run it now (it resumes from its checkpoint)
-        run.next_attempt_at = None
-        db.add(IngestLog(company_id=company_id, action="retry_now", admin_id=approver, details={"run_id": run.id}))
-        db.commit()
+    prior = getattr(run, "run_now_from", None)
+    if not created and prior is not None:
+        # 'Run now' (1.14.1): a scheduled run (any kind of automatic retry) runs next, resuming from
+        # its checkpoint with its attempt count kept; enqueue_run cleared next_attempt_at and audited it
         worker.wake()
+        msg = (f"Run #{run.id} was scheduled for {fmt_pt(prior)}; it will run now "
+               f"(attempt {run.attempt or 0} kept, resumes from its checkpoint).")
         if wants_html(request):
-            flash(request, f"Run #{run.id} had an automatic retry scheduled; it will resume now.")
+            flash(request, msg)
             return RedirectResponse(f"/admin/runs/{run.id}", status_code=303)
-        return JSONResponse(status_code=202, content={**body, "status": "retry_now"})
+        return JSONResponse(status_code=202, content={**body, "status": "run_now", "detail": msg,
+                                                      "prior_next_attempt_at": runs_svc._aware(prior).isoformat()})
     if not created:
         if wants_html(request):
             flash(request, f"{company.official_name or company.canonical_name} already has run #{run.id} "

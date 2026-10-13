@@ -5,7 +5,10 @@
 <li class="bq__item"><a href="/admin/runs/{{ x.run.id }}">{{ x.company.official_name or x.company.canonical_name }}</a>
   <span class="bq__line"><span class="runstat runstat--{{ x.run.status }}">{{ "scheduled" if x.run.next_attempt_at and x.run.status == "queued" else x.run.status }}</span> {{ adm.ver(x.run) }}</span>
   <span class="bcard__meta">run #{{ x.run.id }} · attempt {{ x.run.attempt or 1 }}</span>
-  <span class="bcard__meta">{{ when_label }} {{ when|pt }}</span></li>
+  <span class="bcard__meta">{{ when_label }} {{ when|pt }}</span>
+  {%- if is_scheduled(x.run) %}
+  <span class="bq__line">{{ adm.run_now(x.company.id, x.company.official_name or x.company.canonical_name, x.run) }}</span>
+  {%- endif %}</li>
 {%- endmacro %}
 <div id="board-top" hx-get="/admin/board/top" hx-swap="outerHTML"{% if queue.active %} hx-trigger="every 10s"{% endif %} aria-live="polite">
 <details class="bsec" open>

@@ -259,10 +259,9 @@ def test_shutdown_pauses_between_stages_without_using_an_attempt(db):
 
 
 def test_rerun_while_retry_scheduled_runs_it_now(db, admin_client, monkeypatch):
-    clock = Clock()
     c = _company(db)
     run, _ = enqueue_run(db, c.id, trigger="test", triggered_by="t")
-    run.next_attempt_at, run.error_type = clock() + timedelta(minutes=60), "api_error"
+    run.next_attempt_at, run.error_type = datetime.now(UTC) + timedelta(minutes=60), "api_error"
     db.commit()
     woke = []
     monkeypatch.setattr(main.worker, "wake", lambda: woke.append(1))

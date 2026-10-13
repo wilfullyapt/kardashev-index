@@ -12,7 +12,9 @@
 {#- Re-run a company with the current pipeline/prompt/rubric/weights versions. Confirmation guards
     the paid API call; the server answers 409 → redirect to the active run if one exists. -#}
 {%- macro rerun(company_id, name, active=none, label="Re-run", cls="btn btn--sm btn--ghost", estimate="typically $0.15–0.30, capped per run") -%}
-{%- if active -%}
+{%- if active and is_scheduled(active) -%}
+{{ run_now(company_id, name, active, cls, estimate) }}
+{%- elif active -%}
 <a class="{{ cls }}" href="/admin/runs/{{ active.id }}" title="A run is already {{ active.status }}">Run #{{ active.id }} {{ active.status }}…</a>
 {%- else -%}
 <form action="/internal/rerun-judgment/{{ company_id }}" method="post" class="inline"
@@ -20,6 +22,15 @@
     <button class="{{ cls }}">{{ label }}</button>
 </form>
 {%- endif -%}
+{%- endmacro -%}
+
+{#- 'Run now' (1.14.1): the company's active run is scheduled for later (automatic retry, oom/crashed
+    requeue, energy retry); the same endpoint clears the wait and keeps the attempt count. -#}
+{%- macro run_now(company_id, name, run, cls="btn btn--sm btn--ghost", estimate="typically $0.15–0.30, capped per run") -%}
+<form action="/internal/rerun-judgment/{{ company_id }}" method="post" class="inline"
+      data-confirm="Run {{ name|e }} now instead of waiting for run #{{ run.id }}’s scheduled retry ({{ run.next_attempt_at|pt }})?&#10;&#10;It resumes from its checkpoint and calls the paid xAI API ({{ estimate }}).">
+    <button class="{{ cls }}" title="Run #{{ run.id }} is scheduled for {{ run.next_attempt_at|pt }}">Run now <span class="bcard__when">(scheduled {{ run.next_attempt_at|pt("%H:%M") }})</span></button>
+</form>
 {%- endmacro -%}
 
 {%- macro status(run) -%}

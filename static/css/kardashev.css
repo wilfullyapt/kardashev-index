@@ -741,3 +741,4 @@ td.actions { text-align: right; white-space: nowrap; }
 
 /* admin: 0-claims warning (1.13.0) */
 .claimwarn { display: inline-block; font-size: .8rem; padding: .1rem .5rem; border-radius: 999px; border: 1px solid #d9822b; color: #f0a35e; }
+.bcard__when{font-size:.85em;opacity:.8;white-space:nowrap}
