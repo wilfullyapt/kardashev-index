@@ -107,3 +107,64 @@ def build(db: Session) -> dict:
     return {"ranked": ranked, "groups": [(k, label, groups[k]) for k, label in GROUPS],
             "unranked_count": sum(len(v) for v in groups.values()), "cost_estimate": cost_estimate(db),
             "total_runs": db.query(func.count(JudgmentRun.id)).scalar() or 0}
+
+
+# ---------------------------------------------------------------- top of page (1.9.0)
+
+PT = __import__("zoneinfo").ZoneInfo("America/Los_Angeles")
+
+
+def _pt_bounds(now):
+    """Start of today and of this month in Pacific time, as aware datetimes."""
+    from datetime import datetime
+    local = now.astimezone(PT)
+    day = datetime(local.year, local.month, local.day, tzinfo=PT)
+    month = datetime(local.year, local.month, 1, tzinfo=PT)
+    from datetime import UTC
+    return day.astimezone(UTC), month.astimezone(UTC)  # UTC: SQLite compares naive strings
+
+
+def queue(db: Session) -> dict:
+    """Running, queued (ready now) and scheduled automatic retries, oldest first."""
+    rows = (db.query(JudgmentRun, Company).join(Company, Company.id == JudgmentRun.company_id)
+            .filter(JudgmentRun.status.in_(ACTIVE_RUN_STATUSES)).order_by(JudgmentRun.id).all())
+    out = {"running": [], "queued": [], "scheduled": []}
+    for r, c in rows:
+        key = ("running" if r.status == "running"
+               else "scheduled" if r.next_attempt_at is not None else "queued")
+        out[key].append({"run": r, "company": c})
+    out["scheduled"].sort(key=lambda x: x["run"].next_attempt_at)
+    out["active"] = bool(out["running"] or out["queued"] or out["scheduled"])
+    out["total"] = sum(len(out[k]) for k in ("running", "queued", "scheduled"))
+    return out
+
+
+def spend(db: Session, now=None) -> dict:
+    """Recorded run costs (JudgmentRun.cost_usd) for today and this month, Pacific time. Runs with no
+    recorded cost are counted separately so the total is never presented as complete when it isn't."""
+    from datetime import UTC, datetime
+    now = now or datetime.now(UTC)
+    day, month = _pt_bounds(now)
+    out = {}
+    for key, since in (("today", day), ("month", month)):
+        q = db.query(JudgmentRun.cost_usd).filter(func.coalesce(JudgmentRun.finished_at, JudgmentRun.queued_at) >= since)
+        costs = [c for (c,) in q]
+        known = [c for c in costs if c is not None]
+        out[key] = {"usd": round(sum(known), 4) if known else None, "runs": len(costs),
+                    "unknown": len(costs) - len(known)}
+    return out
+
+
+def health(obs: dict) -> dict:
+    """The /health observability block, reshaped for the board (no extra queries)."""
+    if not obs or "error" in obs:
+        return {"error": (obs or {}).get("error", "unavailable")}
+    runs = obs.get("runs_7d", {})
+    failures = sorted(((k.split(":", 1)[1], v) for k, v in runs.items() if k.startswith("failed:")),
+                      key=lambda x: -x[1])
+    return {"window_days": obs.get("window_days"), "succeeded": runs.get("succeeded", 0),
+            "degraded": runs.get("degraded", 0), "energy_unreadable": runs.get("energy_unreadable", 0),
+            "withheld": runs.get("withheld", 0), "failures": failures,
+            "failed_total": sum(v for _k, v in failures), "hosts": obs.get("hosts_7d", [])[:5],
+            "archive": obs.get("archive", {}), "stale": obs.get("retry_claims_without_queued_run", []),
+            "computed_at": obs.get("computed_at")}

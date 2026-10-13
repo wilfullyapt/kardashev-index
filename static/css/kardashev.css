@@ -706,3 +706,13 @@ td.actions { text-align: right; white-space: nowrap; }
 .bcard__more summary { min-height: 44px; display: flex; align-items: center; cursor: pointer; color: var(--muted); }
 .bcard__more form { margin-top: .5rem; }
 .bcard__unretract { margin: 0; }
+
+/* admin board top (1.9.0) */
+.bq { list-style: none; margin: 0; padding: 0; }
+.bq__item { padding: .5rem 0; border-bottom: 1px solid rgba(127,127,127,.2); display: flex; flex-direction: column; }
+.bq__h { margin: .75rem 0 .25rem; font-size: 1rem; }
+.bstat { display: flex; justify-content: space-between; align-items: baseline; margin: .35rem 0 0; }
+.bstat strong { font-size: 1.25rem; }
+.badd { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
+.badd label { display: flex; flex-direction: column; flex: 1 1 10rem; }
+.badd input { min-height: 44px; font-size: 1rem; }

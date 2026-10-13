@@ -879,7 +879,55 @@ def admin_board(request: Request, db: Session = Depends(get_db), current_admin: 
     return templates.TemplateResponse(
         request, "admin_board.html",
         {"request": request, "admin": current_admin, "version": __version__, "board": board_svc.build(db),
-         "pending": pending, "alerts": _admin_alerts(db), **pop_flash(request)})
+         "pending": pending, "alerts": _admin_alerts(db), **_board_top(db), **pop_flash(request)})
+
+
+def _board_top(db: Session) -> dict:
+    return {"queue": board_svc.queue(db), "spend": board_svc.spend(db),
+            "health": board_svc.health(observability.cached(SessionLocal))}
+
+
+@app.get("/admin/board/top")
+def admin_board_top(request: Request, db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
+    """The board's live block (queue, health, spend); HTMX polls it every 10 s only while work is active."""
+    return templates.TemplateResponse(request, "partials/_board_top.html",
+                                      {"request": request, **_board_top(db)})
+
+
+@app.post("/admin/companies/add")
+async def admin_add_company(request: Request, db: Session = Depends(get_db),
+                            current_admin: str = Depends(get_current_admin)):
+    """Add a company and queue its first run (1.9.0). An exact name/ticker match re-runs the existing
+    company instead of creating a duplicate. Recorded as an approved suggestion + IngestLog admin_add."""
+    form = await request.form()
+    name = (form.get("name") or "").strip()[:200]
+    ticker = (form.get("ticker") or "").strip().upper()[:12] or None
+    if not name and not ticker:
+        flash(request, "Enter a company name or ticker.", "error")
+        return RedirectResponse("/admin", status_code=303)
+    canonical = (name or ticker).lower().replace(" ", "-")
+    company = db.query(Company).filter(Company.canonical_name == canonical).first()
+    if company is None and ticker:
+        company = db.query(Company).filter(Company.ticker == ticker).first()
+    existed = company is not None
+    if not existed:
+        company = get_or_create_company(db, canonical)
+        if ticker and not company.ticker:
+            company.ticker = ticker
+    sug = Suggestion(name=name or ticker, status="approved", admin_id=current_admin, submitted_at=datetime.now(UTC))
+    db.add(sug)
+    db.commit()
+    run, created = runs_svc.enqueue_run(db, company.id, trigger="approve" if not existed else "rerun",
+                                        triggered_by=current_admin, suggestion_id=sug.id)
+    db.add(IngestLog(company_id=company.id, suggestion_id=sug.id, action="admin_add", admin_id=current_admin,
+                     details={"source": "web", "name": name, "ticker": ticker, "existing": existed,
+                              "run_id": run.id, "run_created": created}))
+    db.commit()
+    worker.wake()
+    label = company.official_name or company.canonical_name
+    flash(request, (f"{label} already exists — " if existed else f"Added {label} — ")
+          + f"run #{run.id} {'queued' if created else 'already ' + run.status}.")
+    return RedirectResponse("/admin", status_code=303)
 
 
 @app.get("/admin/classic")

@@ -89,6 +89,8 @@ and all of them send `noindex`.
 | Page | What it shows |
 |---|---|
 | `GET /admin` | (1.8.0) phone-first **board**: pending suggestions, ranked cards sorted by Index, unranked cards in four collapsible groups (see below); each card shows name, score or reason, last run (PT) and cost, Re-run (confirm with cost estimate), Retract / Un-retract, Details, History |
+| `GET /admin/board/top` | (1.9.0) board live block: queue (running / queued / scheduled retries, PT), system health (the `/health` observability block, cached ≤60 s), spend today and this month (PT) from recorded `cost_usd`, showing "unknown" when nothing was recorded; HTMX polls it every 10 s only while the queue is non-empty |
+| `POST /admin/companies/add` | (1.9.0) form `name` and/or `ticker`: creates the company (exact name or ticker match re-runs the existing one) and queues a run; recorded as an approved suggestion plus IngestLog `admin_add` |
 | `GET /admin/classic` | the previous dashboard: latest runs (live), every company with current/last run, identity pinning, duplicate attempts, activity log |
 | `POST /admin/runs/{id}/unretract` | (1.8.0) clears a retraction; the current run is recomputed under the existing rules; audit event `run_unretracted` (admin session + same-origin check) |
 | `GET /admin/companies/{id}/history` | company run history |

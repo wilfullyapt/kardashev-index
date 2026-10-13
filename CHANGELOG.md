@@ -10,6 +10,13 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.9.0] — Admin board: live queue, health, spend, add company
+
+### Added
+- Top of `/admin`: a live queue (running, queued, scheduled retries with PT times); system health reused from the `/health` observability block (failures by type, worst sites, archive.org usage today); and spend today and this month (PT) from recorded run costs. Runs with no recorded cost are counted, and the total shows "unknown" when nothing was recorded.
+- `GET /admin/board/top` partial: HTMX refreshes it every 10 s only while something is running, queued or scheduled, and polling stops when idle.
+- Add-company form (`POST /admin/companies/add`, name and/or ticker → Run). An exact name or ticker match re-runs the existing company. The ticker is stored as a hint; identity resolution still decides the entity (pin the identity to force it).
+
 ## [1.8.0] — Phone-first admin board
 
 ### Added
