@@ -54,6 +54,9 @@
                         <span class="overall__v">{{ '%.1f'|format(run.index_score) }}<small>/10</small></span>
                         {{ ki.bar(run.index_score, false, 'Index') }}
                         <span class="overall__c">conf {{ '%.0f'|format((run.confidence or 0) * 100) }}%{% set ms = measured_share(item.cats) %}{% if ms is not none %} · <span title="Share of the scored weight that is measured (the rest is labelled opinion)">meas {{ '%.0f'|format(ms * 100) }}%</span>{% endif %}</span>
+                        {%- if run.pipeline_version %}
+                        <span class="pvchip mono" title="Measured with {{ run.pipeline_version }} · {{ run.prompt_version or 'prompts —' }} · {{ run.rubric_version }} · {{ run.weights_version }}">{{ run.pipeline_version|replace('pipeline-', '') }}</span>
+                        {%- endif %}
                     </div>
                 </td>
             </tr>

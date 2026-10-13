@@ -85,7 +85,7 @@ def test_board_page_cards_and_actions(admin_client, db):
     tesla = w["en"]
     assert f'action="/internal/rerun-judgment/{tesla.id}"' in html and "about $0.30" in html
     assert f'href="/admin/companies/{tesla.id}/history"' in html and "/admin/runs/" in html
-    assert "last run 2026-10-01" in html and "$0.30" in html
+    assert "Last run 2026-10-01" in html and "$0.30" in html
     assert "Classic" in html and admin_client.get("/admin/classic").status_code == 200
 
 

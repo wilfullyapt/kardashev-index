@@ -81,10 +81,14 @@
     </header>
     {%- if x.group != 'ranked' %}<p class="bcard__reason">{{ x.reason }}</p>{% else %}
     <p class="bcard__reason mono small">conf {{ '%.0f'|format((cur.confidence or 0) * 100) }}% · coverage {{ '%.0f'|format((cur.coverage or 0) * 100) }}%</p>{% endif %}
-    <p class="bcard__meta mono small">
-        {%- if x.active %}<span class="runstat runstat--{{ x.active.status }}">run #{{ x.active.id }} {{ x.active.status }}</span> · {% endif -%}
-        {%- if last %}last run {{ (last.finished_at or last.queued_at)|pt }} PT · {{ adm_cost(last.cost_usd) }} · {{ status(last) }}{% else %}no completed run{% endif -%}
-    </p>
+    <div class="bcard__meta">
+        {%- if x.active %}<p class="bcard__line"><span class="runstat runstat--{{ x.active.status }}">run #{{ x.active.id }} {{ x.active.status }}</span> {{ ver(x.active) }}</p>{% endif -%}
+        {%- if last %}
+        <p class="bcard__line">Last run {{ (last.finished_at or last.queued_at)|pt }}</p>
+        <p class="bcard__line">{{ status(last) }} · {{ adm_cost(last.cost_usd) }} · {{ ver(last) }}</p>
+        {%- if cur and cur.id != last.id %}<p class="bcard__line">Current run #{{ cur.id }} · {{ ver(cur) }}</p>{% endif -%}
+        {%- else %}<p class="bcard__line">No completed run</p>{% endif -%}
+    </div>
     <div class="bcard__actions">
         {{ rerun(c.id, name, x.active, cls="btn btn--sm bcard__btn", estimate=estimate) }}
         {%- if x.detail_run %}<a class="btn btn--sm btn--ghost bcard__btn" href="/admin/runs/{{ x.detail_run.id }}">Details</a>{% endif %}
@@ -92,7 +96,7 @@
     </div>
     {%- if cur and cur.status == 'succeeded' and not cur.retracted_at %}
     <details class="bcard__more">
-        <summary class="small">Retract run #{{ cur.id }}…</summary>
+        <summary class="btn btn--sm btn--ghost bcard__btn bcard__sum">Retract run #{{ cur.id }}…</summary>
         <form action="/admin/runs/{{ cur.id }}/retract" method="post" class="stack"
               data-confirm="Retract run #{{ cur.id }} for {{ name|e }}? It will never be current again; the most recent remaining run becomes current and the public page shows a correction note with your reason.">
             <input type="hidden" name="next" value="/admin#company-{{ c.id }}">
@@ -111,5 +115,16 @@
     {%- endif %}
 </article>
 {%- endmacro -%}
+
+{#- Pipeline version chip (1.10.1). The run records its versions when it starts, so a queued run that
+    never started has none: show "not started", never a guessed version. -#}
+{%- macro ver(run) -%}
+{%- if run and run.pipeline_version -%}
+<span class="vchip mono" title="{{ run.pipeline_version }} · {{ run.prompt_version or 'prompts —' }} · {{ run.rubric_version or 'rubrics —' }} · {{ run.weights_version or 'weights —' }}">pipeline {{ run.pipeline_version|replace('pipeline-', '') }}</span>
+{%- else -%}<span class="vchip vchip--none mono" title="versions are recorded when the run starts">not started</span>{%- endif -%}
+{%- endmacro -%}
+
+{#- prompts / rubrics / weights on one line, for tables that already show the pipeline -#}
+{%- macro subver(run) -%}{% if run and run.pipeline_version %}{{ run.prompt_version or '—' }} · {{ run.rubric_version or '—' }} · {{ run.weights_version or '—' }}{% endif %}{%- endmacro -%}
 
 {%- macro adm_cost(v) -%}{{ '$%.2f'|format(v) if v else 'cost unknown' }}{%- endmacro -%}
