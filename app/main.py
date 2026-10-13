@@ -21,12 +21,10 @@ from . import observability
 from . import publication
 from .pipeline import methodology as meth
 from .pipeline.config import code_version, sec_user_agent_ok, settings as pipeline_settings, worker_settings
-from .pipeline.fetch import HttpFetcher
 from .pipeline.measures import METRIC_LABELS, fmt_num
 from .pipeline.semantics import DEFINITIONS
-from .pipeline.llm import XAIClient
-from .pipeline.runner import Deps
 from .worker import Worker
+from .deps import build_deps
 from datetime import datetime, UTC
 from zoneinfo import ZoneInfo
 from urllib.parse import urlencode
@@ -44,19 +42,6 @@ from . import seo
 
 # xAI key (existing env var names). The pipeline builds its own httpx client from it.
 XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
-
-
-def build_deps() -> Deps:
-    """Production dependencies for a judgment run (fresh settings each run, so env changes apply)."""
-    cfg = pipeline_settings()
-    llm = XAIClient(XAI_API_KEY, base_url=cfg.xai_base_url, chat_timeout_s=cfg.chat_timeout_s,
-                    search_timeout_s=cfg.search_timeout_s, max_retries=cfg.max_retries,
-                    backoff_max_s=cfg.backoff_max_s) if XAI_API_KEY else None
-    return Deps(llm=llm, fetcher=HttpFetcher(timeout_s=cfg.fetch_timeout_s, max_bytes=cfg.fetch_max_bytes,
-                                             retries=cfg.fetch_retries, sec_user_agent=cfg.sec_user_agent,
-                                             ua_strategy=cfg.fetch_ua_strategy,
-                                             bot_user_agent=cfg.fetch_bot_user_agent),
-                settings=cfg)
 
 
 worker = Worker(SessionLocal, lambda: build_deps())

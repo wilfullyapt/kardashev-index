@@ -48,6 +48,13 @@ class Settings:
     fetch_timeout_s: float = field(default_factory=lambda: _f("FETCH_TIMEOUT_S", 20))
     fetch_max_bytes: int = field(default_factory=lambda: _i("FETCH_MAX_BYTES", 30_000_000))
     fetch_retries: int = field(default_factory=lambda: _i("FETCH_RETRIES", 2))
+    # Memory caps (1.14.0, pipeline-v2.16). HTML/text bodies are streamed into a buffer capped at
+    # FETCH_HTML_MAX_BYTES; a PDF over FETCH_PDF_INPROCESS_MAX_BYTES is not parsed in the main process but
+    # handed to the large-PDF child (relevant pages only). FETCH_MAX_BYTES stays the absolute ceiling.
+    fetch_html_max_bytes: int = field(default_factory=lambda: _i("FETCH_HTML_MAX_BYTES", 8_000_000))
+    fetch_pdf_inprocess_max_bytes: int = field(default_factory=lambda: _i("FETCH_PDF_INPROCESS_MAX_BYTES", 5_000_000))
+    # Parallel source downloads in the fetch stage (was 6 before 1.14.0).
+    fetch_workers: int = field(default_factory=lambda: _i("FETCH_WORKERS", 3))
     # Header profile (1.7.0): "honest_first" asks as the declared KardashevIndexBot first and retries
     # once with browser headers on 401/403/406, remembering per host what worked; "browser" = before 1.7.0.
     fetch_ua_strategy: str = field(default_factory=lambda: os.getenv("FETCH_UA_STRATEGY", "honest_first").strip().lower())
@@ -167,6 +174,11 @@ class WorkerSettings:
     sweep_daily_cost_usd: float = field(default_factory=lambda: _f("SWEEP_DAILY_COST_USD", 2.0))
     sweep_est_run_usd: float = field(default_factory=lambda: _f("SWEEP_EST_RUN_USD", 0.35))
     drain_s: float = field(default_factory=lambda: _f("WORKER_DRAIN_S", 45))
+    # Each run executes in a fresh child process (1.14.0) so its memory is returned to the OS when it
+    # ends and an out-of-memory kill takes down only that run. WORKER_SUBPROCESS=0 = in-process (old).
+    subprocess: bool = field(default_factory=lambda: _b("WORKER_SUBPROCESS", True))
+    # Seconds the supervisor waits after SIGTERM before SIGKILLing a run child on shutdown.
+    child_term_s: float = field(default_factory=lambda: _f("WORKER_CHILD_TERM_S", 40))
 
 
 def _delays(raw: str) -> tuple:

@@ -11,6 +11,7 @@ Figures must also have their value in that source span and their unit nearby."""
 from __future__ import annotations
 
 import re
+from array import array
 import unicodedata
 from dataclasses import dataclass, field
 
@@ -63,9 +64,11 @@ def _keep(ch: str) -> str:
     return "".join(c for c in t if c.isalnum())
 
 
-def _skeleton(text: str, drop_footnotes: bool = False) -> tuple[str, list[int]]:
+def _skeleton(text: str, drop_footnotes: bool = False) -> tuple[str, array]:
     out: list[str] = []
-    pos: list[int] = []
+    # offsets as a C array (1.14.0): a list of Python ints cost ~36 bytes per character, ~50 MB per
+    # variant for a 1.3M-character 10-K; 4 bytes here
+    pos = array("I")
     n = len(text)
     i = 0
     while i < n:
@@ -116,7 +119,7 @@ class SourceText:
     def __post_init__(self):
         self.norm = normalize(self.text)
 
-    def sk(self, drop_footnotes: bool = False) -> tuple[str, list[int]]:
+    def sk(self, drop_footnotes: bool = False) -> tuple[str, array]:
         if drop_footnotes not in self._sk:
             self._sk[drop_footnotes] = _skeleton(self.text, drop_footnotes)
         return self._sk[drop_footnotes]

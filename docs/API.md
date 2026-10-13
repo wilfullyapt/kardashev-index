@@ -183,6 +183,16 @@ a cache, re-synced after a run or a retraction):
   energy or electricity consumption (same year ±1) is recorded but not scored, with a flag. Sentences
   in the synthesis or opinion rationales that describe planned or unscored capacity as operating are
   removed (`semantics.strip_future_as_current`).
+
+### Memory and the per-run process (1.14.0)
+Each run executes in its own process (`python -m app.runproc <run_id>`), started and watched by the in-process worker. `/health` → `worker` reports:
+- `mode` (`subprocess` | `in-process`) and `child_pid`;
+- `rss_mb` / `peak_rss_mb` of the web + supervisor process;
+- `last_child` (`run_id`, `pid`, `exit_code`, `peak_rss_mb`, `seconds`) and `last_release` (RSS before/after gc + malloc_trim);
+- `last_run.peak_rss_mb`.
+
+Every run's `summary.memory` has `stages_rss_mb` (RSS after each stage), `peak_rss_mb`, `pid` and `mode`. A run whose child is killed gets `error_type` `oom` (SIGKILL), `killed` (other signal), `crashed` (non-zero exit) or `timeout`. All four are transient and re-queued within `RUN_MAX_ATTEMPTS`.
+
 - **Large PDFs** (pipeline-v2.6): a PDF over `FETCH_MAX_BYTES` is no longer simply rejected. A
   separate, resource-capped process reads only its relevant pages (outline hits, then the last 40% from
   the end backwards, keeping pages with energy figures), over HTTP Range requests when the server
@@ -365,7 +375,7 @@ a cache, re-synced after a run or a retraction):
 | `FETCH_DISCOVER_PER_PAGE` / `FETCH_DISCOVER_MAX` | `2` / `4` | report PDFs followed per page / per run (`0` = off) |
 | `EDGAR_ANNUAL_REPORT` / `FETCH_REGISTRY_FALLBACK` | `1` / `1` | add the latest 10-K / 20-F / 40-F text from SEC EDGAR as a candidate source; when no energy source could be read, look the company up on ResponsibilityReports.com and add its newest report PDF |
 | `LARGE_PDF_ENABLED` | `1` | read over-cap PDFs in a capped child process (0 = reject them as before) |
-| `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `256` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
+| `LARGE_PDF_MEMORY_MB` / `LARGE_PDF_CPU_S` / `LARGE_PDF_TIMEOUT_S` / `LARGE_PDF_DEADLINE_S` | `192` / `90` / `150` / `120` | child address-space cap, CPU seconds, wall-clock kill, internal stop-and-return deadline |
 | `LARGE_PDF_RANGE_BUDGET_MB` / `LARGE_PDF_MAX_DOWNLOAD_MB` | `48` / `200` | bytes transferred via HTTP Range; largest streamed download (needs 2× free disk) |
 | `LARGE_PDF_SCAN_PAGES` / `LARGE_PDF_QUIET_PAGES` / `LARGE_PDF_KEEP_PAGES` / `LARGE_PDF_MAX_CHARS` / `LARGE_PDF_STREAM_MB` | `120` / `40` / `30` / `400000` / `16` | pages examined, stop after this many pages without a hit, pages kept, text kept, per-stream decompression cap |
 | `JUDGE_RESOLVE_MAX_TOKENS` / `JUDGE_RESEARCH_MAX_TOKENS` / `JUDGE_EXTRACT_MAX_TOKENS` / `JUDGE_JUDGE_MAX_TOKENS` | `8000` / `16000` / `16000` / `8000` | output token limits |
@@ -378,3 +388,11 @@ a cache, re-synced after a run or a retraction):
 | `ALERT_WEBHOOK_URL` | unset | optional JSON webhook for failures/degradations/stuck runs |
 | `WORKER_ENABLED` | `1` | set `0` to disable the in-process worker |
 | `WORKER_STALE_S` / `WORKER_DRAIN_S` | `180` / `45` | stale-heartbeat recovery (resumes from checkpoint); shutdown drain time |
+| `WORKER_SUBPROCESS` | `1` | run each pipeline run in a fresh child process (`python -m app.runproc`), supervised by the in-process worker; `0` = in-process (pre-1.14.0) |
+| `WORKER_CHILD_TERM_S` / `WORKER_RUN_TIMEOUT_S` | `40` / `1800` | seconds between SIGTERM and SIGKILL for a run child on shutdown (keep below `WORKER_DRAIN_S`); wall-clock cap per run child (error_type `timeout`, re-queued) |
+| `WORKER_CHILD_DEPS` | unset (`app.deps:build_deps`) | tests only: `module:function` deps factory for the run child |
+| `FETCH_HTML_MAX_BYTES` / `FETCH_PDF_INPROCESS_MAX_BYTES` | `8000000` / `5000000` | streamed cap for HTML/text bodies; PDFs above this go to the large-PDF child instead of in-process pypdf |
+| `FETCH_WORKERS` / `PDF_PARSE_SLOTS` | `3` / `1` | parallel downloads in the fetch stage; PDFs parsed in-process at once |
+| `HTML_PARSE_MAX_BYTES` / `HTML_LIGHT_PARSE_BYTES` | `4000000` / `1000000` | HTML cut before parsing; above this size lxml is used instead of BeautifulSoup |
+| `FETCH_PROFILES_FILE` | `<tmp>/kardashev-host-profiles.json` | where header-profile memory is kept between run processes |
+| `MALLOC_ARENA_MAX` | `2` | glibc malloc arenas (set in render.yaml) |

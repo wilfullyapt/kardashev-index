@@ -10,6 +10,43 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.14.0] — Memory: each run in its own process, capped downloads and parsing (pipeline-v2.16)
+
+Render's 512 MB instance kept warning and restarted mid-batch (Oct 13, 10:51 AM PT). Its memory graph stepped up with each run and never came back down. The web process also ran every pipeline run, and freed memory stayed with the process.
+
+### Changed
+- **Each run executes in a fresh child process** (`python -m app.runproc <run_id>`, `WORKER_SUBPROCESS=1` by default; `0` restores in-process runs). The worker stays in the web process as a supervisor.
+  - The supervisor claims the run, keeps the heartbeat going, and waits for the child.
+  - The child opens its own database connection and calls the same `execute_run`, so checkpoints, retries, defers and energy retries are unchanged.
+  - When the child exits, the run's memory goes back to the OS. Local check: the supervisor stays at about 59 MB after each run, where in-process runs used to ratchet up to ~700 MB.
+- **A child that dies is a transient error, re-queued through the normal bounded retry path** (`RUN_MAX_ATTEMPTS`, `RUN_RETRY_DELAYS_MIN`):
+  - SIGKILL (the kernel's OOM killer) → `error_type` `oom`.
+  - Any other signal → `killed`.
+  - A non-zero exit → `crashed`.
+  - Running past `WORKER_RUN_TIMEOUT_S` (default 1800) → `timeout`.
+- **Shutdown:** the child gets SIGTERM, stops before its next stage, and is re-queued at its checkpoint. After `WORKER_CHILD_TERM_S` (default 40, below `WORKER_DRAIN_S` 45) it is SIGKILLed, and the run is still re-queued without using up an attempt.
+- **After every run the supervisor calls `gc.collect()` and `malloc_trim(0)`.** `render.yaml` sets `MALLOC_ARENA_MAX=2`.
+- **Downloads:**
+  - HTML/text bodies are streamed into a buffer capped at `FETCH_HTML_MAX_BYTES` (8 MB). `FETCH_MAX_BYTES` stays the absolute ceiling.
+  - A PDF over `FETCH_PDF_INPROCESS_MAX_BYTES` (5 MB) goes to the large-PDF child (relevant pages only) instead of pypdf in the main process.
+  - Raw bodies are dropped as soon as their text is extracted. Report landing pages keep theirs until link discovery has read them.
+- **Fetch concurrency:** 3 threads instead of 6 (`FETCH_WORKERS`). One in-process PDF parse at a time instead of 2 (`PDF_PARSE_SLOTS`).
+- **Large HTML** (SEC 10-Ks):
+  - Cut at `HTML_PARSE_MAX_BYTES` (4 MB) before parsing.
+  - Pages over `HTML_LIGHT_PARSE_BYTES` (1 MB) are read with lxml directly instead of BeautifulSoup (about 100× the markup for table-heavy filings), one at a time. These pages skip the embedded-JSON reader; they are documents, not JavaScript shells.
+- **Evidence matching:** the quote-matching offset index is a 4-byte C array instead of a list of Python ints (~50 MB per variant for a 1.3M-character 10-K).
+- **Large-PDF child memory cap:** 192 MB instead of 256 (`LARGE_PDF_MEMORY_MB`).
+- **Header-profile memory** (which hosts need browser headers) now survives the per-run process in a small JSON file (`FETCH_PROFILES_FILE`).
+
+### Added
+- `summary.memory` on every run: RSS after each stage, plus the run's peak and its pid/mode.
+- `/health` `worker` gains:
+  - `mode`, `child_pid`;
+  - `rss_mb` and `peak_rss_mb` (web/supervisor process);
+  - `last_child` (pid, exit code, peak RSS, seconds) and `last_release` (RSS before/after gc + trim);
+  - `last_run.peak_rss_mb`.
+- No scoring, weighting, rubric or publication-rule changes. Runs record pipeline-v2.16, because very large pages are now cut before parsing.
+
 ## [1.13.0] — Qualitative evidence budget, claims-only follow-up, 0-claims visibility (pipeline-v2.15, prompts-v2.6)
 
 ### Changed

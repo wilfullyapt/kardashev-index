@@ -20,7 +20,7 @@ through the last 40% (data appendices sit at the end), keeping pages with energy
 Safeguards for the 512 MB / 0.5 CPU Render instance (the web process also runs the worker):
 - **Separate process.** All of the above runs in a child Python process (``python -m
   app.pipeline.largepdf``). A crash or out-of-memory there cannot take down the web process.
-- **Memory cap.** The child runs under ``RLIMIT_AS`` = LARGE_PDF_MEMORY_MB (default 256 MB of address
+- **Memory cap.** The child runs under ``RLIMIT_AS`` = LARGE_PDF_MEMORY_MB (default 192 MB since 1.14.0, was 256; of address
   space; an idle child with pypdf is ~50 MB). Exceeding it raises MemoryError in the child (or kills
   it); the parent records "memory cap reached" and moves on. RangeFile's cache is ≤ 8 MB; downloads go
   to disk in 1 MB chunks; pypdf's per-stream decompression cap is lowered from 75 MB to
@@ -73,7 +73,7 @@ def _env_f(name: str, default: float) -> float:
 class Limits:
     enabled: bool = field(default_factory=lambda: os.getenv("LARGE_PDF_ENABLED", "1").strip().lower()
                           not in ("0", "false", "no", "off"))
-    memory_mb: int = field(default_factory=lambda: int(_env_f("LARGE_PDF_MEMORY_MB", 256)))
+    memory_mb: int = field(default_factory=lambda: int(_env_f("LARGE_PDF_MEMORY_MB", 192)))
     timeout_s: float = field(default_factory=lambda: _env_f("LARGE_PDF_TIMEOUT_S", 150))
     cpu_s: int = field(default_factory=lambda: int(_env_f("LARGE_PDF_CPU_S", 90)))
     deadline_s: float = field(default_factory=lambda: _env_f("LARGE_PDF_DEADLINE_S", 120))
