@@ -168,3 +168,32 @@ def health(obs: dict) -> dict:
             "failed_total": sum(v for _k, v in failures), "hosts": obs.get("hosts_7d", [])[:5],
             "archive": obs.get("archive", {}), "stale": obs.get("retry_claims_without_queued_run", []),
             "computed_at": obs.get("computed_at")}
+
+
+# ---------------------------------------------------------------- history compare (1.10.0)
+
+def history(db: Session, company: Company, limit: int = 50) -> dict:
+    """A company's runs newest first, for side-by-side comparison. ``ranked`` is the stored ranking
+    decision of each run; ``current`` marks the run the public page shows (publication replay)."""
+    from .models import Source
+    runs = (db.query(JudgmentRun).filter(JudgmentRun.company_id == company.id)
+            .order_by(JudgmentRun.id.desc()).limit(limit).all())
+    counts = dict(db.query(Source.run_id, func.count(Source.id))
+                  .filter(Source.run_id.in_([r.id for r in runs] or [0])).group_by(Source.run_id).all())
+    current = publication.current_run(db, company)
+    rows = []
+    for r in runs:
+        if r.status != "succeeded":
+            status = r.status + (f" ({r.error_type})" if r.error_type else "")
+        elif r.retracted_at is not None:
+            status = "retracted"
+        elif r.degraded:
+            status = "degraded"
+        else:
+            status = "published" if r.published else "withheld"
+        rows.append({"run": r, "sources": counts.get(r.id, 0), "status": status,
+                     "measured": (r.summary or {}).get("measured_coverage"),
+                     "reason": (r.summary or {}).get("not_ranked_reason"),
+                     "current": current is not None and current.id == r.id})
+    return {"company": company, "rows": rows, "total": db.query(JudgmentRun)
+            .filter(JudgmentRun.company_id == company.id).count(), "limit": limit}
