@@ -164,7 +164,7 @@ def health(obs: dict) -> dict:
                       key=lambda x: -x[1])
     return {"window_days": obs.get("window_days"), "succeeded": runs.get("succeeded", 0),
             "degraded": runs.get("degraded", 0), "energy_unreadable": runs.get("energy_unreadable", 0),
-            "withheld": runs.get("withheld", 0), "failures": failures,
+            "withheld": runs.get("withheld", 0), "zero_claims": runs.get("zero_claims", 0), "failures": failures,
             "failed_total": sum(v for _k, v in failures), "hosts": obs.get("hosts_7d", [])[:5],
             "archive": obs.get("archive", {}), "stale": obs.get("retry_claims_without_queued_run", []),
             "computed_at": obs.get("computed_at")}

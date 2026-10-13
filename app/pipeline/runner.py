@@ -730,10 +730,70 @@ def _scaled_number(value: float, span: str, factor: float) -> float | None:
     return None
 
 
+def _filing_sources(ctx: RunContext) -> set:
+    """Sources that are SEC filings or annual reports (mostly financial tables)."""
+    out = set()
+    for sid in ctx.texts:
+        src = ctx.sources[sid]
+        url = src.final_url or src.url
+        if (src.origin == "filing" or is_sec_host(src.url) or is_sec_host(url)
+                or filings.is_annual_report({"url": src.url, "title": src.title})):
+            out.add(sid)
+    return out
+
+
+def _claims_followup(ctx: RunContext, st: Stage, have: int) -> tuple[list, dict]:
+    """pipeline-v2.15: one claims-only call over the most qualitative excerpts when fewer than
+    EXTRACT_CLAIMS_MIN claims were verified. Returns (claims, sid_map); never fails the run."""
+    s = ctx.s
+    info = {"verified_before": have}
+    st.detail["claims_followup"] = info
+    if not s.claims_followup:
+        info["skipped"] = "disabled (EXTRACT_CLAIMS_FOLLOWUP=0)"
+        return [], {}
+    if (ctx.run.cost_usd or 0) + s.claims_followup_max_usd + s.judge_reserve_usd >= s.max_cost_usd:
+        info["skipped"] = "not enough budget left under the per-run cap"
+        return [], {}
+    plans = {sid: ev.plan(t.text) for sid, t in ctx.texts.items()}
+    excerpts = ev.qualitative_excerpts({sid: t.text for sid, t in ctx.texts.items()}, plans,
+                                       s.claims_followup_chars, exclude=_filing_sources(ctx))
+    if not excerpts:
+        info["skipped"] = "no qualitative passages in the fetched sources"
+        return [], {}
+    blocks = []
+    for sid, w in excerpts.items():
+        src = ctx.sources[sid]
+        blocks.append((f"S{sid}", src.url if src.archive_url else (src.final_url or src.url), w))
+    sid_map = {f"S{sid}": sid for sid in ctx.texts}
+    info["sources"] = len(blocks)
+    info["chars_sent"] = sum(len(w) for _a, _b, w in blocks)
+    before = ctx.run.cost_usd or 0
+    try:
+        (_f, claims, rejected), _ = ctx.call_json(
+            st, kind="chat", system=P.CLAIMS_SYSTEM, user=P.extract_user(ctx.entity.get("official_name", ""), blocks),
+            validate=lambda d: P.validate_extract(d, set(sid_map)), max_tokens=s.claims_followup_max_tokens,
+            reserve=s.judge_reserve_usd + 0.0)
+    except (BudgetReached, RunFailed) as e:
+        info["error"] = f"{type(e).__name__}: {e}"[:300]
+        return [], {}
+    finally:
+        info["cost_usd"] = round((ctx.run.cost_usd or 0) - before, 6)
+    info["proposed"] = len(claims)
+    if rejected:
+        info["malformed_dropped"] = len(rejected)
+    return claims, sid_map
+
+
 def _extract_call(ctx: RunContext, st: Stage, avoid: dict | None = None, nudge: bool = False):
     plans = {sid: ev.plan(t.text) for sid, t in ctx.texts.items()}
+    filing_ids = _filing_sources(ctx)
+    qual = sorted((sid for sid in plans if sid not in filing_ids and ev.qual_relevance(plans[sid]) > 0),
+                  key=lambda sid: (-ev.qual_relevance(plans[sid]), sid))[:max(0, ctx.s.extract_qual_sources)]
     budgets = ev.allocate(plans, {sid: len(t.text) for sid, t in ctx.texts.items()},
-                          ctx.s.extract_max_chars, ctx.s.per_source_chars)
+                          ctx.s.extract_max_chars, ctx.s.per_source_chars,
+                          caps={sid: ctx.s.extract_filing_max_chars for sid in filing_ids},
+                          qual_keys=qual, qual_floor=ctx.s.extract_qual_floor_chars)
+    st.detail["budget_plan"] = {"filings": sorted(filing_ids), "qualitative": qual}
     blocks, sent, chosen = [], {}, {}
     for sid, t in ctx.texts.items():
         w, chosen[sid] = ev.select(t.text, budgets[sid], plans[sid], (avoid or {}).get(sid))
@@ -884,25 +944,42 @@ def stage_extract(ctx: RunContext):
                 src = ctx.sources[sid]
                 ctx.figures.append(Figure(row.id, sid, key, value, unit, f["period"],
                                           bool(src.is_primary), src.final_url or src.url, row.quote))
-        for c in claims:
-            cited = sid_map[c["source_id"]]
-            sid, m, moved = _locate_any(ctx, c["quote"], cited)
-            row = Evidence(run_id=ctx.run.id, source_id=sid, category=c["category"], kind="claim",
-                           claim=c["claim"], quote=c["quote"][:2000],
-                           note=f"quote found in S{sid} (model cited S{cited})" if moved else None)
-            ctx.db.add(row)
-            if m is None:
-                reject(row, "quote not found in fetched source")
-            else:
-                row.quote_verified = True
-                row.quote = m.text
-                row.context = ctx.texts[sid].context(m)
-                methods[m.method] = methods.get(m.method, 0) + 1
-                kept_c += 1
-                ctx.claims.append(row)
-            ctx.db.flush()
+        seen_quotes: set = set()
+
+        def verify_claims(items, smap) -> int:
+            kept = 0
+            for c in items:
+                cited = smap[c["source_id"]]
+                sid, m, moved = _locate_any(ctx, c["quote"], cited)
+                if m is not None and (sid, m.text) in seen_quotes:
+                    continue                      # the follow-up repeated a claim we already have
+                row = Evidence(run_id=ctx.run.id, source_id=sid, category=c["category"], kind="claim",
+                               claim=c["claim"], quote=c["quote"][:2000],
+                               note=f"quote found in S{sid} (model cited S{cited})" if moved else None)
+                ctx.db.add(row)
+                if m is None:
+                    reject(row, "quote not found in fetched source")
+                else:
+                    row.quote_verified = True
+                    row.quote = m.text
+                    row.context = ctx.texts[sid].context(m)
+                    methods[m.method] = methods.get(m.method, 0) + 1
+                    seen_quotes.add((sid, m.text))
+                    kept += 1
+                    ctx.claims.append(row)
+                ctx.db.flush()
+            return kept
+
+        kept_c = verify_claims(claims, sid_map)
+        followup_claims = []
+        if kept_c < ctx.s.claims_min and st.final_status is None:
+            followup_claims, fsmap = _claims_followup(ctx, st, kept_c)
+            if followup_claims:
+                added = verify_claims(followup_claims, fsmap)
+                st.detail["claims_followup"]["verified"] = added
+                kept_c += added
         st.detail.update({"figures_proposed": len(figures), "figures_verified": kept_f,
-                          "claims_proposed": len(claims), "claims_verified": kept_c,
+                          "claims_proposed": len(claims) + len(followup_claims), "claims_verified": kept_c,
                           "malformed_dropped": len(rejected), "rejections": reasons, "match_methods": methods})
         if reclassified:
             st.detail["reclassified"] = reclassified
@@ -1094,6 +1171,7 @@ def stage_aggregate(ctx: RunContext):
         e = ctx.entity
         run.summary = {"entity": e, "synthesis": ctx.synthesis, "headline": ctx.headline,
                        "not_ranked_reason": agg.reason, "measured_coverage": agg.measured_coverage,
+                       "claims_verified": len(ctx.claims),
                        "flags": ctx.flags, "previous_run_id": prev.id if prev else None,
                        "previous_index": prev.index_score if prev else None,
                        "publish_note": note, "rank_basis": agg.basis, "adjusted_coverage": agg.adjusted_coverage,
@@ -1210,7 +1288,8 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
     run.prompt_version = P.PROMPT_VERSION
     run.rubric_version = meth.RUBRIC_VERSION
     run.weights_version = meth.WEIGHTS_VERSION
-    run.prompt_hash = meth.bundle_hash(P.RESOLVE_SYSTEM, P.RESEARCH_SYSTEM, P.EXTRACT_SYSTEM, P.JUDGE_SYSTEM)
+    run.prompt_hash = meth.bundle_hash(P.RESOLVE_SYSTEM, P.RESEARCH_SYSTEM, P.EXTRACT_SYSTEM, P.CLAIMS_SYSTEM,
+                                     P.JUDGE_SYSTEM)
     run.code_version = code_version()
     run.started_at = run.started_at or deps.now()
     run.next_attempt_at = None

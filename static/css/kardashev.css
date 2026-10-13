@@ -738,3 +738,6 @@ td.actions { text-align: right; white-space: nowrap; }
 
 /* public: pipeline version on leaderboard rows (1.11.0) */
 .pvchip { display: block; width: max-content; margin: .2rem 0 0 auto; font-size: .68rem; line-height: 1.2; padding: 0 .35rem; color: var(--dim); border: 1px solid rgba(127,127,127,.35); border-radius: 999px; white-space: nowrap; }
+
+/* admin: 0-claims warning (1.13.0) */
+.claimwarn { display: inline-block; font-size: .8rem; padding: .1rem .5rem; border-radius: 999px; border: 1px solid #d9822b; color: #f0a35e; }
