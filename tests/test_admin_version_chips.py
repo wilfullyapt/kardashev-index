@@ -3,8 +3,8 @@ from datetime import UTC, datetime, timedelta
 
 from app.models import Company, JudgmentRun
 
-V = dict(pipeline_version="pipeline-v2.13", prompt_version="prompts-v2.5", rubric_version="rubrics-v1",
-         weights_version="weights-v1")
+V = {"pipeline_version": "pipeline-v2.13", "prompt_version": "prompts-v2.5", "rubric_version": "rubrics-v1",
+         "weights_version": "weights-v1"}
 TIP = 'title="pipeline-v2.13 · prompts-v2.5 · rubrics-v1 · weights-v1"'
 
 
@@ -26,7 +26,7 @@ def _setup(db):
 
 
 def test_board_cards_and_queue(admin_client, db):
-    c, q, done, queued, _ = _setup(db)
+    c, q, _done, queued, _ = _setup(db)
     html = admin_client.get("/admin").text
     card = html[html.index(f'id="company-{c.id}"'):]
     card = card[:card.index("</article>")]
@@ -40,7 +40,7 @@ def test_board_cards_and_queue(admin_client, db):
 
 
 def test_scheduled_retry_keeps_its_recorded_version(admin_client, db):
-    c, q, done, queued, sched = _setup(db)
+    _c, _q, _done, queued, sched = _setup(db)
     queued.status = "failed"
     db.add(sched)
     db.commit()
@@ -49,7 +49,7 @@ def test_scheduled_retry_keeps_its_recorded_version(admin_client, db):
 
 
 def test_classic_runs_list_and_history(admin_client, db):
-    c, q, done, queued, _ = _setup(db)
+    c, _q, _done, _queued, _ = _setup(db)
     classic = admin_client.get("/admin/classic").text
     assert classic.count("pipeline v2.13") >= 3          # latest runs + companies current + last
     assert "not started" in classic
@@ -60,7 +60,3 @@ def test_classic_runs_list_and_history(admin_client, db):
     assert "Swipe sideways" in hist
 
 
-def test_public_pages_unchanged(client, db):
-    c, *_ = _setup(db)
-    html = client.get(f"/companies/{c.id}").text
-    assert "vchip" not in html and "not started" not in html

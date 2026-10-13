@@ -735,3 +735,6 @@ td.actions { text-align: right; white-space: nowrap; }
 .bq__line { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .2rem 0; }
 .hcmp__hint { display: none; font-size: .85rem; opacity: .8; text-align: center; margin: .5rem 0 0; }
 @media (max-width: 52rem) { .hcmp__hint { display: block; } }
+
+/* public: pipeline version on leaderboard rows (1.11.0) */
+.pvchip { display: block; width: max-content; margin: .2rem 0 0 auto; font-size: .68rem; line-height: 1.2; padding: 0 .35rem; color: var(--dim); border: 1px solid rgba(127,127,127,.35); border-radius: 999px; white-space: nowrap; }
