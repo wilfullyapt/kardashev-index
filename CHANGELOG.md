@@ -10,6 +10,11 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.10.0] — Admin run history compare view
+
+### Added
+- `/admin/companies/{id}/history` is now a side-by-side compare of a company's past runs (newest 50): pipeline version, date (PT), coverage and measured coverage, confidence, Index, ranked (with the not-ranked reason), source count, cost, and status (published/withheld/degraded/retracted/failed). The run the public page shows is marked current. On phones the table scrolls sideways with the run column pinned. It replaces the 1.8.0 redirect to the runs list.
+
 ## [1.9.0] — Admin board: live queue, health, spend, add company
 
 ### Added

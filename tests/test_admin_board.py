@@ -132,8 +132,5 @@ def test_unretract_follows_existing_current_run_rules(db):
     assert publication.current_run(db, c).id == new.id
 
 
-def test_history_link_redirects_to_the_company_runs(admin_client, db):
-    c = _company(db, "hist")
-    r = admin_client.get(f"/admin/companies/{c.id}/history", follow_redirects=False)
-    assert r.status_code == 302 and r.headers["location"] == f"/admin/runs?company_id={c.id}"
+def test_history_link_404_for_unknown_company(admin_client):
     assert admin_client.get("/admin/companies/99999/history").status_code == 404

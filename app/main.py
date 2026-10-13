@@ -1024,10 +1024,15 @@ async def admin_run_unretract(run_id: int, request: Request, db: Session = Depen
 @app.get("/admin/companies/{company_id}/history")
 def admin_company_history(company_id: int, request: Request, db: Session = Depends(get_db),
                           current_admin: str = Depends(get_current_admin)):
-    """A company's runs (1.8.0: the filtered run list; a side-by-side compare view follows)."""
-    if not db.get(Company, company_id):
+    """A company's past runs side by side (1.10.0): version, date, coverage, confidence, index, ranked,
+    sources, cost, status. Newest first; the run the public page shows is marked current."""
+    company = db.get(Company, company_id)
+    if not company:
         raise HTTPException(404, "Company not found")
-    return RedirectResponse(f"/admin/runs?company_id={company_id}", status_code=302)
+    return templates.TemplateResponse(
+        request, "admin_history.html",
+        {"request": request, "admin": current_admin, "version": __version__, "h": board_svc.history(db, company),
+         "alerts": _admin_alerts(db), **pop_flash(request)})
 
 
 @app.post("/internal/runs/{run_id}/retract")

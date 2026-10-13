@@ -716,3 +716,11 @@ td.actions { text-align: right; white-space: nowrap; }
 .badd { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
 .badd label { display: flex; flex-direction: column; flex: 1 1 10rem; }
 .badd input { min-height: 44px; font-size: 1rem; }
+
+/* admin history compare (1.10.0) */
+.hcmp { overflow-x: auto; -webkit-overflow-scrolling: touch; margin: 1rem 0; }
+.hcmp__t { border-collapse: collapse; min-width: 52rem; width: 100%; }
+.hcmp__t th, .hcmp__t td { padding: .6rem .5rem; border-bottom: 1px solid rgba(127,127,127,.2); text-align: left; vertical-align: top; }
+.hcmp__t thead th { position: sticky; top: 0; }
+.hcmp__t tbody th { position: sticky; left: 0; background: inherit; white-space: nowrap; }
+.hcmp__cur { outline: 2px solid currentColor; outline-offset: -2px; }

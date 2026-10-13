@@ -93,7 +93,7 @@ and all of them send `noindex`.
 | `POST /admin/companies/add` | (1.9.0) form `name` and/or `ticker`: creates the company (exact name or ticker match re-runs the existing one) and queues a run; recorded as an approved suggestion plus IngestLog `admin_add` |
 | `GET /admin/classic` | the previous dashboard: latest runs (live), every company with current/last run, identity pinning, duplicate attempts, activity log |
 | `POST /admin/runs/{id}/unretract` | (1.8.0) clears a retraction; the current run is recomputed under the existing rules; audit event `run_unretracted` (admin session + same-origin check) |
-| `GET /admin/companies/{id}/history` | company run history |
+| `GET /admin/companies/{id}/history` | (1.10.0) the company's runs side by side, newest first (50): version, date (PT), coverage (and measured), confidence, index, ranked (each run's own decision, with its reason), source count, cost, status (published / withheld / degraded / retracted / failed (type)); the run the public page shows is marked current |
 | `GET /admin/runs?company_id=&status=&page=` | every run, newest first, 25 per page; filters by company and status; refreshes itself while a run is queued/running |
 | `GET /admin/runs/{id}` | one run: queued/started/finished (Pacific) and duration, queue wait, attempt/worker, pipeline/prompt/rubric/weights versions, prompt bundle hash, **code version**, model requested/returned, cost vs budget, tokens, searches, per-stage timings/tokens/cost/errors/detail JSON, category scores, every source (including rejected ones and why); re-run button; polls every 3 s while active |
 
