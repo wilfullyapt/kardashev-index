@@ -18,7 +18,18 @@
 {{ adm.nav('board') }}
 {{ adm.alerts_banner(alerts) }}
 
-{% block board_top %}{% endblock %}
+{% block board_top %}
+{% include "partials/_board_top.html" %}
+<details class="bsec" id="add-company">
+  <summary class="bsec__head">Add a company</summary>
+  <form method="post" action="/admin/companies/add" class="badd">
+    <label>Name <input name="name" maxlength="200" autocomplete="off" placeholder="e.g. Crusoe Energy"></label>
+    <label>Ticker <input name="ticker" maxlength="12" autocomplete="off" placeholder="optional"></label>
+    <button class="bcard__btn" type="submit">Run</button>
+  </form>
+  <p class="bcard__meta">Queues a measurement run now; an existing company with the same name or ticker is re-run instead.</p>
+</details>
+{% endblock %}
 
 {% if pending %}
 <details class="bsec" open>

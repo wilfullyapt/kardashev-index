@@ -1,0 +1,51 @@
+{# Board live block (1.9.0). Polls every 10 s only while something is running, queued or scheduled;
+   the idle response has no hx-trigger, so polling stops by itself. #}
+{% macro item(x, when_label, when) -%}
+<li class="bq__item"><a href="/admin/runs/{{ x.run.id }}">{{ x.company.official_name or x.company.canonical_name }}</a>
+  <span class="bcard__meta">run #{{ x.run.id }} · attempt {{ x.run.attempt or 1 }} · {{ when_label }} {{ when|pt }}</span></li>
+{%- endmacro %}
+<div id="board-top" hx-get="/admin/board/top" hx-swap="outerHTML"{% if queue.active %} hx-trigger="every 10s"{% endif %} aria-live="polite">
+<details class="bsec" open>
+  <summary class="bsec__head">Queue <span class="bsec__count">{{ queue.total }}</span>
+    {% if queue.active %}<span class="bcard__meta">· live, refreshing every 10 s</span>{% else %}<span class="bcard__meta">· idle</span>{% endif %}</summary>
+  {% if not queue.active %}<p class="bcard__meta">Nothing running, queued or scheduled.</p>{% endif %}
+  {% for key, label in (("running", "Running"), ("queued", "Queued"), ("scheduled", "Scheduled retries")) %}
+    {% if queue[key] %}
+    <h3 class="bq__h">{{ label }} ({{ queue[key]|length }})</h3>
+    <ul class="bq">
+      {% for x in queue[key] %}
+        {% if key == "running" %}{{ item(x, "started", x.run.started_at) }}
+        {% elif key == "scheduled" %}{{ item(x, "retry at", x.run.next_attempt_at) }}
+        {% else %}{{ item(x, "queued", x.run.queued_at) }}{% endif %}
+      {% endfor %}
+    </ul>
+    {% endif %}
+  {% endfor %}
+</details>
+
+<div class="bgrid">
+<section class="bsec bcard" id="spend">
+  <h3 class="bq__h">Spend</h3>
+  {% for key, label in (("today", "Today"), ("month", "This month")) %}{% set s = spend[key] %}
+  <p class="bstat"><span>{{ label }} (PT)</span>
+    <strong>{% if s.usd is none %}unknown{% else %}${{ "%.2f"|format(s.usd) }}{% endif %}</strong></p>
+  <p class="bcard__meta">{{ s.runs }} run{{ "" if s.runs == 1 else "s" }}{% if s.unknown %} · {{ s.unknown }} without a recorded cost (not included){% endif %}</p>
+  {% endfor %}
+  <p class="bcard__meta">From recorded run costs only.</p>
+</section>
+
+<section class="bsec bcard" id="health">
+  <h3 class="bq__h">System health{% if health.window_days %} · last {{ health.window_days|int }} days{% endif %}</h3>
+  {% if health.error %}<p class="bcard__meta">Health data unavailable ({{ health.error }}).</p>{% else %}
+  <p class="bstat"><span>Failed runs</span><strong>{{ health.failed_total }}</strong></p>
+  {% if health.failures %}<p class="bcard__meta">{% for k, v in health.failures %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}</p>{% endif %}
+  <p class="bcard__meta">{{ health.succeeded }} succeeded · {{ health.degraded }} degraded · {{ health.energy_unreadable }} energy unreadable · {{ health.withheld }} withheld</p>
+  <p class="bstat"><span>archive.org today</span><strong>{{ health.archive.used_today if health.archive.used_today is not none else "?" }} / {{ health.archive.daily_max if health.archive.daily_max is not none else "?" }}</strong></p>
+  {% if health.hosts %}<p class="bcard__meta">Worst sites:</p>
+  <ul class="bq">{% for h in health.hosts %}<li class="bq__item">{{ h.host }} <span class="bcard__meta">{{ h.failed }}/{{ h.total }} failed</span></li>{% endfor %}</ul>{% endif %}
+  {% if health.stale %}<p class="bcard__meta">{{ health.stale|length }} compan{{ "y" if health.stale|length == 1 else "ies" }} claim a retry with no run queued.</p>{% endif %}
+  <p class="bcard__meta">Same data as /health (cached up to 60 s).</p>
+  {% endif %}
+</section>
+</div>
+</div>
