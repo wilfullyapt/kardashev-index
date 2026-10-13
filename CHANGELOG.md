@@ -10,6 +10,19 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.12.0] — SEC fetch fix, one annual report per run, archive-first for bot-walled hosts (pipeline-v2.14)
+
+### Fixed
+- **sec.gov 403s ("Undeclared Automated Tool"):** the energy retry's `browser_first` strategy and the large-PDF reader sent a browser User-Agent to sec.gov. Every SEC request now carries `SEC_EDGAR_USER_AGENT`, whatever headers the caller passed.
+- SEC URLs are never retried with browser headers and never looked up in the Wayback Machine.
+- SEC full-submission `.txt` files (whole filing plus exhibits, often 10–20 MB) are never fetched; the primary document carries the report.
+
+### Changed
+- At most one annual report (10-K / 20-F / 40-F) per run. Preference: the edgar stage's candidate, then sec.gov, then the newest other copy; IR mirrors are skipped when a better copy exists. Skipped candidates are listed in the fetch stage detail.
+- New `FETCH_ARCHIVE_FIRST_HOSTS` (default `tesla.com,www.tesla.com,ir.tesla.com`; empty = off): hosts whose bot manager refuses every client are looked up in the Wayback Machine first, and fetched live only if no usable copy exists.
+- `/health` `config.sec_edgar_user_agent_format_ok`, plus a startup warning when `SEC_EDGAR_USER_AGENT` isn't `Name contact@domain`.
+- No scoring, weighting, rubric or publication-rule changes. Runs record pipeline-v2.14.
+
 ## [1.11.0] — Pipeline versions on every run surface (admin and public)
 
 ### Added

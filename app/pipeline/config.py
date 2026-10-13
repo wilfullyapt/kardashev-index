@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 
 
@@ -18,6 +19,16 @@ def _i(name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
 
+
+
+ARCHIVE_FIRST_DEFAULT = ("tesla.com", "www.tesla.com", "ir.tesla.com")
+
+_SEC_UA = re.compile(r"^\S.*\s\S+@[^\s@]+\.[^\s@]+$")
+
+
+def sec_user_agent_ok(ua: str | None) -> bool:
+    """SEC fair access asks for "Sample Company Name AdminContact@<sample company domain>.com"."""
+    return bool(ua and _SEC_UA.match(ua.strip()))
 
 @dataclass(frozen=True)
 class Settings:
@@ -41,6 +52,12 @@ class Settings:
     # once with browser headers on 401/403/406, remembering per host what worked; "browser" = before 1.7.0.
     fetch_ua_strategy: str = field(default_factory=lambda: os.getenv("FETCH_UA_STRATEGY", "honest_first").strip().lower())
     fetch_bot_user_agent: str | None = field(default_factory=lambda: os.getenv("FETCH_BOT_USER_AGENT") or None)
+    # Hosts that refuse automated clients outright (Akamai Bot Manager answers 403 to every header profile):
+    # asked via the Wayback Machine first, live only if no usable copy exists (pipeline-v2.14). Exact host
+    # names, comma-separated; subdomains are not implied (digitalassets.tesla.com serves files fine).
+    fetch_archive_first_hosts: frozenset = field(default_factory=lambda: frozenset(
+        h.strip().lower() for h in os.getenv("FETCH_ARCHIVE_FIRST_HOSTS", ",".join(ARCHIVE_FIRST_DEFAULT)).split(",")
+        if h.strip()))
     # Wayback Machine fallback for sources that answer 401/403/404/410/451 (labelled "archived copy").
     wayback_enabled: bool = field(default_factory=lambda: _b("FETCH_WAYBACK", True))
     # Cap on archive.org requests (CDX lookups + copies) per run; the fallback stops early on 429/outage.

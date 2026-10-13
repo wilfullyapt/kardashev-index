@@ -254,7 +254,9 @@ class HttpFetcher:
                     if is_sec_host(current):
                         # SEC requires a declared User-Agent with contact details and <= 10 req/s.
                         self._sec.wait()
-                        if self.sec_user_agent and "User-Agent" not in (headers or {}):
+                        # Always the declared SEC client (pipeline-v2.14): a caller's browser UA (an
+                        # energy retry, a header override) gets "Undeclared Automated Tool" 403s.
+                        if self.sec_user_agent:
                             h = {**hdrs, "User-Agent": self.sec_user_agent, "Sec-Fetch-Site": "none"}
                     with client.stream("GET", current, headers=h) as resp:
                         if resp.is_redirect and resp.headers.get("location"):
@@ -684,6 +686,9 @@ class Wayback:
         (the caller's checks, e.g. assess + large-PDF rescue). Returns (copy, assessment, attempt);
         copy is None unless an ``ok`` copy was found."""
         att = ArchiveAttempt()
+        if is_sec_host(url):     # SEC answers a declared client; an archive copy of a filing is never needed
+            att.outcome, att.note = "skipped", "SEC URLs are not looked up in the Wayback Machine"
+            return None, None, att
         stamps = self.lookup(url, att)
         if stamps is None:
             if not att.note:

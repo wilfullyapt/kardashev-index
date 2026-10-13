@@ -20,7 +20,7 @@ from . import disclosure
 from . import observability
 from . import publication
 from .pipeline import methodology as meth
-from .pipeline.config import code_version, settings as pipeline_settings, worker_settings
+from .pipeline.config import code_version, sec_user_agent_ok, settings as pipeline_settings, worker_settings
 from .pipeline.fetch import HttpFetcher
 from .pipeline.measures import METRIC_LABELS, fmt_num
 from .pipeline.semantics import DEFINITIONS
@@ -65,6 +65,11 @@ worker = Worker(SessionLocal, lambda: build_deps())
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     task = None
+    _sec_ua = pipeline_settings().sec_user_agent
+    if _sec_ua and not sec_user_agent_ok(_sec_ua):
+        logging.getLogger("kardashev").warning(
+            "SEC_EDGAR_USER_AGENT %r does not look like 'Name contact@example.com' (SEC fair-access format); "
+            "sec.gov may answer 403", _sec_ua)
     if os.getenv("WORKER_ENABLED", "1").lower() not in ("0", "false", "no"):
         task = asyncio.create_task(worker.run_forever())
     try:
@@ -314,6 +319,7 @@ def health():
             "code_version": code_version(), "worker": w,
             "observability": observability.cached(worker.session_factory),
             "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
+                       "sec_edgar_user_agent_format_ok": sec_user_agent_ok(pipeline_settings().sec_user_agent),
                        "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
     return JSONResponse(body, status_code=503 if "db_error" in w else 200)
 
