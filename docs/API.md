@@ -12,7 +12,7 @@ EDGAR → fetch → extract → compute → judge → aggregate) and records eve
 | Endpoint | Before | Now |
 |---|---|---|
 | `POST /internal/approve/{suggestion_id}` | `200`, blocked until the LLM finished; `judgment: "success"/"failed"` | `202`; `judgment: "queued"` or `"already_queued"` / `"already_running"`; adds `run_id`, `run_url` |
-| `POST /internal/rerun-judgment/{company_id}` | `200`, blocked; overwrote scores | `202 {status: "rerun_queued", run_id, run_url}`; `409 {status: "already_active", run_id, run_status}` if a run is queued/running; `404` unknown company |
+| `POST /internal/rerun-judgment/{company_id}` | `200`, blocked; overwrote scores | `202 {status: "rerun_queued", run_id, run_url}`; `409 {status: "already_active", run_id, run_status}` if a run is queued/running; `202 {status: "run_now", prior_next_attempt_at, detail}` when the active run was scheduled for later (1.14.1: it runs now, attempt count kept, audited `run_now`); `404` unknown company |
 | `GET /internal/runs/{run_id}` | — | new: full run record incl. stages and category scores |
 | `GET /internal/runs?company_id=&status=&limit=` | — | new: run list (newest first, max 100) |
 | `GET /internal/stats` | | adds `runs: {status: count}` |

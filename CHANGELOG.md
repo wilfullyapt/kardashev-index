@@ -10,6 +10,21 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.14.1] — "Run now" for scheduled runs
+
+### Fixed
+- A manual re-run of a company whose energy retry was scheduled answered 409 "already active", and the retry still waited for its time. `enqueue_run` cleared the wait before the endpoint could see it.
+
+### Changed
+- **Run now:** any manual trigger (admin re-run, Hermes, approve) on a company whose active run is queued with a future `next_attempt_at` now clears the wait.
+  - This applies to every kind of scheduled run: deferred or transient retries, `oom`/`crashed`/`killed`/`timeout` requeues, and energy retries.
+  - The attempt count and checkpoint are kept.
+  - The change is audited as a `run_now` IngestLog event (`run_id`, `prior_next_attempt_at`, the run's trigger and error type, `attempt`, and who asked).
+  - The rerun endpoint answers 202 `status: "run_now"` with a message; the admin UI shows a flash and redirects. This replaces the `retry_now` event.
+  - The automatic triggers (energy retry, daily sweep) never pull a scheduled run forward.
+- **Admin board:** cards and the top queue's scheduled rows show **Run now (scheduled HH:MM PT)** instead of the "Run #N queued…" link. The same button appears on the run page and in the classic table.
+- No pipeline, scoring or publication changes.
+
 ## [1.14.0] — Memory: each run in its own process, capped downloads and parsing (pipeline-v2.16)
 
 Render's 512 MB instance kept warning and restarted mid-batch (Oct 13, 10:51 AM PT). Its memory graph stepped up with each run and never came back down. The web process also ran every pipeline run, and freed memory stayed with the process.

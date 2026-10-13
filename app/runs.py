@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from datetime import UTC
+from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
 from sqlalchemy.exc import IntegrityError
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from . import publication
 from .judgment import is_placeholder, summarize_scores
 from .models import (ACTIVE_RUN_STATUSES, CategoryScore, Company, Evidence, JudgmentRun, JudgmentStage, Metric,
-                     Score, Source)
+                     IngestLog, Score, Source)
 from .pipeline import methodology as meth
 from .pipeline.evidence import normalize
 from .pipeline.measures import METRIC_LABELS, fmt_num, fmt_power
@@ -59,17 +59,48 @@ def active_run(db: Session, company_id: int) -> JudgmentRun | None:
             .order_by(JudgmentRun.id.desc()).first())
 
 
+# Triggers that never pull a scheduled run forward (automatic requeues, the daily sweep).
+AUTOMATIC_TRIGGERS = ("energy_retry", "auto_sweep", "sweep")
+
+
+def _aware(dt):
+    return dt.replace(tzinfo=UTC) if dt is not None and dt.tzinfo is None else dt
+
+
+def is_scheduled(run, now=None) -> bool:
+    """A queued run waiting for a future next_attempt_at (deferred/transient retry, oom/crashed requeue,
+    energy retry)."""
+    if run is None or run.status != "queued" or run.next_attempt_at is None:
+        return False
+    return _aware(run.next_attempt_at) > (now or datetime.now(UTC))
+
+
+def run_now(db: Session, run: JudgmentRun, by: str, now=None):
+    """'Run now' (1.14.1): clear a scheduled run's next_attempt_at so the worker picks it up next.
+    The attempt count and checkpoint are kept (it resumes where it stopped). Audited as ``run_now``.
+    Returns the previous next_attempt_at, or None when the run wasn't scheduled (nothing changed)."""
+    if not is_scheduled(run, now):
+        return None
+    prior = run.next_attempt_at
+    run.next_attempt_at = None
+    db.add(IngestLog(company_id=run.company_id, action="run_now", admin_id=by,
+                     details={"run_id": run.id, "prior_next_attempt_at": _aware(prior).isoformat(),
+                              "run_trigger": run.trigger, "error_type": run.error_type,
+                              "attempt": run.attempt}))
+    db.commit()
+    return prior
+
+
 def enqueue_run(db: Session, company_id: int, *, trigger: str, triggered_by: str,
                 suggestion_id: int | None = None) -> tuple[JudgmentRun, bool]:
-    """Returns (run, created). At most one active run per company (unique partial index)."""
+    """Returns (run, created). At most one active run per company (unique partial index).
+
+    A manual request (any trigger but the automatic ones) for a company whose active run is scheduled
+    for later runs it now instead (``run_now``); ``run.run_now_from`` then holds the cleared time."""
     existing = active_run(db, company_id)
     if existing:
-        # A manual request runs a scheduled automatic retry now instead of waiting for it.
-        if (existing.status == "queued" and existing.next_attempt_at is not None
-                and existing.trigger in ("energy_retry",) and trigger not in ("energy_retry", "auto_sweep")):
-            existing.next_attempt_at = None
-            existing.triggered_by = triggered_by
-            db.commit()
+        existing.run_now_from = (run_now(db, existing, triggered_by)
+                                 if trigger not in AUTOMATIC_TRIGGERS else None)
         return existing, False
     run = JudgmentRun(company_id=company_id, status="queued", trigger=trigger, triggered_by=triggered_by,
                       suggestion_id=suggestion_id, attempt=0)
