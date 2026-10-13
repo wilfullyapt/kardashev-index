@@ -14,6 +14,7 @@ Reliability (pipeline-v2.2):
   are recorded on the run and surfaced to admins."""
 from __future__ import annotations
 
+import os
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -26,7 +27,7 @@ from urllib.parse import urlsplit, urlunsplit
 from sqlalchemy.exc import DBAPIError, OperationalError
 from sqlalchemy.orm import Session
 
-from .. import alerts, publication
+from .. import alerts, memstats, publication
 from ..models import (CategoryScore, Company, Evidence, IngestLog, JudgmentRun, JudgmentStage, Metric,
                       Source)
 from . import evidence as ev
@@ -500,6 +501,15 @@ def _needs_registry(results, domain: str | None) -> bool:
                for c, res, a, _o, _att in results)
 
 
+def _may_discover(c: dict, res, a) -> bool:
+    """Same page test as ``_discover``: a readable HTML report landing page whose links matter."""
+    if a.status not in ("ok", "thin") or not res.body or is_pdf_body(res.content_type, res.body):
+        return False
+    base = c["url"] if res.archived_from else (res.final_url or c["url"])
+    title = a.snapshot.title if a.snapshot and a.snapshot.title else c.get("title")
+    return is_report_page(base, title, c.get("covers"))
+
+
 def _discover(ctx: RunContext, results) -> list[dict]:
     """Report PDFs linked from report landing pages we could read (original or Wayback copy)."""
     if ctx.s.discover_max <= 0 or ctx.s.discover_per_page <= 0:
@@ -569,7 +579,20 @@ def stage_fetch(ctx: RunContext):
 
         archive_hosts = ctx.s.fetch_archive_first_hosts
 
+        def slim(out):
+            """Drop each raw body as soon as its text is extracted (1.14.0): only report landing pages
+            keep theirs, because link discovery below reads their HTML."""
+            c, res, a, original, _att = out
+            if not _may_discover(c, res, a):
+                res.drop_body()
+            if original is not None:
+                original.drop_body()
+            return out
+
         def work(c):
+            return slim(_work(c))
+
+        def _work(c):
             retrying = c["url"] in retry_urls
             sec = is_sec_host(c["url"])        # SEC: always the declared client, live, never archived
             host = (urlsplit(c["url"]).hostname or "").lower()
@@ -592,9 +615,11 @@ def stage_fetch(ctx: RunContext):
                 return c, res, a, None, att
             return c, res, a, None, pre_att
 
-        with ThreadPoolExecutor(max_workers=6) as pool:
+        with ThreadPoolExecutor(max_workers=max(1, ctx.s.fetch_workers)) as pool:
             results = list(pool.map(work, ctx.candidates))
         discovered = _discover(ctx, results)
+        for _c, res, *_rest in results:
+            res.drop_body()
         if discovered:      # one at a time: these are usually large PDFs (large-PDF reader, archive)
             results += [work(c) for c in discovered]
             ctx.candidates.extend(discovered)
@@ -627,7 +652,7 @@ def stage_fetch(ctx: RunContext):
                          http_status=res.status, content_type=res.content_type or None,
                          title=(snap.title if snap and snap.title else c.get("title")),
                          fetched_at=ctx.deps.now(), sha256=snap.sha256 if snap else None,
-                         byte_size=snap.byte_size if snap else (len(res.body) if res.body else None),
+                         byte_size=snap.byte_size if snap else (res.size or None),
                          text=snap.text[: ctx.s.snapshot_max_chars] if snap and a.status == "ok" else None,
                          status=a.status, reject_reason=a.reason,
                          is_primary=host_matches(c["url"] if res.archived_from else (res.final_url or c["url"]), domain))
@@ -1298,6 +1323,7 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
     attempt = run.attempt or 1
     ctx.final_attempt = (not policy.auto_retry) or attempt >= policy.max_attempts
     t0 = time.monotonic()
+    mem: dict[str, float | None] = {"start": memstats.rss_mb()}
     try:
         if deps.llm is None:
             raise RunFailed("config_error", "XAI_API_KEY not configured")
@@ -1309,6 +1335,8 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
             if deps.should_stop is not None and deps.should_stop():
                 raise Paused(name)
             fn(ctx)
+            mem[name] = memstats.rss_mb()
+        _record_memory(run, mem)
         run.status = "succeeded"
         run.current_stage = None
         run.error_type = run.error_message = run.error_class = None
@@ -1342,6 +1370,7 @@ def execute_run(db: Session, run_id: int, deps: Deps) -> JudgmentRun:
         etype, transient, msg = _classify(e)
         run.error_type, run.error_message = etype, msg[:2000]
         run.error_class = "transient" if transient else "permanent"
+        _record_memory(run, mem)
         run.published = False
         run.current_stage = None
         attempt = run.attempt or 1
@@ -1436,6 +1465,57 @@ def schedule_energy_retry(db: Session, run: JudgmentRun, deps) -> JudgmentRun | 
                               "next_attempt_at": retry.next_attempt_at.isoformat()}))
     db.commit()
     return retry
+
+
+def mark_run_error(db: Session, run_id: int, etype: str, msg: str, *, transient: bool,
+                   policy: WorkerSettings, now: datetime) -> JudgmentRun | None:
+    """Record an error that happened outside ``execute_run`` (1.14.0: the run's child process was
+    killed or crashed). Same bounded path as a failure inside the run: a transient error is re-queued
+    after RUN_RETRY_DELAYS_MIN while attempts remain (resuming from the checkpoint), else the run fails
+    with the usual judge_error log and alert. A run that already left "running" is left alone."""
+    run = db.get(JudgmentRun, run_id)
+    if run is None or run.status != "running":
+        return run
+    db.query(JudgmentStage).filter(JudgmentStage.run_id == run_id, JudgmentStage.status == "running").update(
+        {"status": "interrupted", "finished_at": now}, synchronize_session=False)
+    run.error_type, run.error_message = etype, msg[:2000]
+    run.error_class = "transient" if transient else "permanent"
+    run.published = False
+    run.current_stage = None
+    run.heartbeat_at = None
+    attempt = run.attempt or 1
+    if transient and policy.auto_retry and attempt < policy.max_attempts:
+        delays = policy.retry_delays_min or (2.0,)
+        run.status = "queued"
+        run.next_attempt_at = now + timedelta(minutes=delays[min(attempt - 1, len(delays) - 1)])
+        db.add(IngestLog(company_id=run.company_id, suggestion_id=run.suggestion_id, action="run_retry_scheduled",
+                         admin_id=run.triggered_by,
+                         details={"run_id": run.id, "attempt": attempt, "max_attempts": policy.max_attempts,
+                                  "error_type": etype, "error": msg[:500],
+                                  "next_attempt_at": run.next_attempt_at.isoformat(),
+                                  "resumes_from": first_pending_stage(run.checkpoint)}))
+        db.commit()
+    else:
+        run.status = "failed"
+        run.finished_at = now
+        started = _utc(run.started_at)
+        if started:
+            run.duration_ms = int((now - started).total_seconds() * 1000)
+        db.add(IngestLog(company_id=run.company_id, suggestion_id=run.suggestion_id, action="judge_error",
+                         admin_id=run.triggered_by,
+                         details={**run_log_details(run), "existing_scores_untouched": True}))
+        db.commit()
+        alerts.notify(alerts.run_event(run, "run_failed"))
+    return run
+
+
+def _record_memory(run: JudgmentRun, stages: dict) -> None:
+    """Per-stage resident memory (MB, after each stage) and the process peak, on run.summary["memory"]
+    (1.14.0). In subprocess mode the peak is this run's; in-process it is the web process's lifetime peak."""
+    run.summary = {**(run.summary or {}), "memory": {
+        "stages_rss_mb": {k: v for k, v in stages.items() if v is not None},
+        "peak_rss_mb": memstats.peak_rss_mb(), "pid": os.getpid(),
+        "mode": os.getenv("KI_RUN_MODE", "in-process")}}
 
 
 def _finish(ctx: RunContext, t0: float):

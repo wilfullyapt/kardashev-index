@@ -12,6 +12,7 @@ import hashlib
 import io
 import ipaddress
 import json
+import os
 import re
 import secrets
 import socket
@@ -98,7 +99,18 @@ BLOCK_PAGE_RE = re.compile(
     re.IGNORECASE)
 PDF_MAX_PAGES = 400
 PDF_MAX_CHARS = 3_000_000
-_PDF_SLOTS = threading.BoundedSemaphore(2)    # bound memory: at most two PDFs parsed at once
+# Bound memory (1.14.0): one PDF parsed in-process at a time (was two); PDF_PARSE_SLOTS overrides.
+_PDF_SLOTS = threading.BoundedSemaphore(max(1, int(os.getenv("PDF_PARSE_SLOTS", "1") or 1)))
+# HTML bigger than this is cut before lxml parses it (1.14.0, pipeline-v2.16). lxml/BeautifulSoup trees
+# cost 10-20x the markup, so an 8 MB inline-XBRL 10-K used to take 100+ MB to parse; the text kept per
+# source is capped at SNAPSHOT_MAX_CHARS anyway. lxml tolerates the cut-off markup.
+HTML_PARSE_MAX_BYTES = int(os.getenv("HTML_PARSE_MAX_BYTES", "4000000") or 4_000_000)
+# Above this size HTML is read with lxml directly instead of BeautifulSoup (1.14.0): BeautifulSoup
+# builds a Python object per node, ~100x the markup for table-heavy filings (a 4 MB 10-K: ~300 MB),
+# while lxml's C tree is a few times the markup. Big pages are documents, not JavaScript shells, so
+# the embedded-JSON reader is skipped for them. One big page is parsed at a time.
+HTML_LIGHT_PARSE_BYTES = int(os.getenv("HTML_LIGHT_PARSE_BYTES", "1000000") or 1_000_000)
+_BIG_HTML_SLOTS = threading.BoundedSemaphore(1)
 
 
 def _host(url: str) -> str:
@@ -150,6 +162,17 @@ class FetchResult:
     archived_from: str | None = None     # original URL when this is a Wayback Machine copy
     archive_timestamp: str | None = None  # YYYYMMDDhhmmss of the snapshot
     profile: str | None = None           # header profile that produced this answer ("bot" | "browser")
+    body_size: int | None = None         # bytes received, kept after the body is dropped to save memory
+
+    def drop_body(self):
+        """Free the raw bytes once the text has been extracted (1.14.0); the size is kept."""
+        if self.body:
+            self.body_size = len(self.body)
+            self.body = b""
+
+    @property
+    def size(self) -> int | None:
+        return len(self.body) if self.body else self.body_size
 
 
 class Fetcher(Protocol):
@@ -187,12 +210,16 @@ class HttpFetcher:
                  sec_user_agent: str | None = None, transport: httpx.BaseTransport | None = None,
                  resolve=socket.getaddrinfo, sleep=time.sleep, sec_limiter: RateLimiter | None = None,
                  ua_strategy: str = "browser", bot_user_agent: str | None = None,
-                 profiles: HostProfiles | None = None):
+                 profiles: HostProfiles | None = None, html_max_bytes: int | None = None,
+                 pdf_max_bytes: int | None = None):
         self.ua_strategy = ua_strategy if ua_strategy in UA_STRATEGIES else "browser"
         self.bot_headers = {**BOT_HEADERS, "User-Agent": bot_user_agent or BOT_USER_AGENT}
         self.profiles = profiles or HOST_PROFILES
         self.timeout_s = timeout_s
         self.max_bytes = max_bytes
+        # per-kind caps (1.14.0): None = only max_bytes applies
+        self.html_max_bytes = html_max_bytes
+        self.pdf_max_bytes = pdf_max_bytes
         self.retries = max(0, retries)
         self.sec_user_agent = sec_user_agent
         self._transport = transport
@@ -267,10 +294,12 @@ class HttpFetcher:
                         result.final_url = current
                         result.retry_after = retry_after_s(resp.headers.get("retry-after"))
                         result.content_type = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-                        chunks, size = [], 0
+                        chunks, size, limit = [], 0, None
                         for chunk in resp.iter_bytes():
+                            if limit is None:      # first chunk: the per-kind cap (PDF vs HTML/text)
+                                limit = self._kind_cap(cap, result.content_type, chunk)
                             size += len(chunk)
-                            if size > cap:
+                            if size > limit:
                                 result.error = f"body larger than {cap} bytes (truncated)"
                                 result.truncated = True
                                 break
@@ -285,6 +314,10 @@ class HttpFetcher:
         except httpx.HTTPError as e:
             result.error = f"{type(e).__name__}: {e}"
         return result
+
+    def _kind_cap(self, cap: int, content_type: str, first: bytes) -> int:
+        kind = self.pdf_max_bytes if is_pdf_body(content_type, first) else self.html_max_bytes
+        return min(cap, kind) if kind else cap
 
 
 @dataclass
@@ -306,6 +339,11 @@ def extract_text(content_type: str, body: bytes, url: str = "") -> tuple[str, st
             return _pdf_text(body)
     if "html" in content_type or body.lstrip()[:15].lower().startswith((b"<!doctype", b"<html")):
         from bs4 import BeautifulSoup
+        if len(body) > HTML_PARSE_MAX_BYTES:
+            body = body[:HTML_PARSE_MAX_BYTES]
+        if len(body) > HTML_LIGHT_PARSE_BYTES:
+            with _BIG_HTML_SLOTS:
+                return _big_html_text(body)
         soup = BeautifulSoup(body, "lxml")
         title = soup.title.get_text(" ", strip=True) if soup.title else ""
         embedded = embedded_json_texts(soup)
@@ -384,6 +422,21 @@ def embedded_json_texts(soup) -> list[str]:
 
 def is_pdf_body(content_type: str, body: bytes) -> bool:
     return content_type == "application/pdf" or body[:5] == b"%PDF-"
+
+
+def _big_html_text(body: bytes) -> tuple[str, str]:
+    """(title, visible text) of a large HTML document via lxml, without BeautifulSoup."""
+    import lxml.html
+    from lxml import etree
+    doc = lxml.html.document_fromstring(body)
+    title = doc.findtext(".//title") or ""
+    etree.strip_elements(doc, "script", "style", "noscript", "svg", "template", "iframe", etree.Comment,
+                         with_tail=False)
+    text = _norm_ws(" ".join(doc.itertext()))
+    del doc
+    from ..memstats import release
+    release()                  # hand the freed tree back to the OS before the next big page
+    return _norm_ws(title), text
 
 
 def _pdf_text(body: bytes) -> tuple[str, str]:
@@ -473,7 +526,7 @@ class SourceChecker:
         if result.status != 200:
             return Assessment("dead", f"unexpected HTTP {result.status}")
         if result.truncated and is_pdf_body(result.content_type, result.body):
-            return Assessment("error", f"PDF larger than {len(result.body) // 1_000_000} MB cap (FETCH_MAX_BYTES); not parsed")
+            return Assessment("error", f"PDF larger than {len(result.body) // 1_000_000} MB in-process cap; not parsed")
         try:
             snap = snapshot(result.content_type, result.body, result.final_url or result.url)
         except ValueError as e:

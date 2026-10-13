@@ -14,6 +14,10 @@ services:
       # match .python-version; the env var wins over the file. https://render.com/docs/python-version
       - key: PYTHON_VERSION
         value: "3.12.15"
+      # glibc: at most 2 malloc arenas (default 8 per core) so fetch threads don't each keep their own
+      # high-water mark; see CHANGELOG 1.14.0
+      - key: MALLOC_ARENA_MAX
+        value: "2"
       - key: DATABASE_URL
         fromDatabase:
           name: kardashev-index-db

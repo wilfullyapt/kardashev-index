@@ -9,6 +9,14 @@
   completed stage, up to RUN_MAX_ATTEMPTS attempts in total.
 - Graceful shutdown: on SIGTERM the worker stops claiming, lets the current stage finish (the run
   is then re-queued at its checkpoint) for up to WORKER_DRAIN_S.
+- Per-run child process (1.14.0, WORKER_SUBPROCESS=1, default): the worker stays in the web process as
+  a supervisor and runs each claimed run in a fresh ``python -m app.runproc <run_id>`` process, so the
+  run's memory is returned to the OS when it ends and an OOM kill only loses that run. A child killed
+  by a signal (SIGKILL = the kernel's OOM killer: error_type "oom"; other signals "killed"), one that
+  exits non-zero ("crashed") or outlives WORKER_RUN_TIMEOUT_S ("timeout") is recorded as a transient
+  error and re-queued through the normal bounded retry path. On shutdown the child gets SIGTERM (stops
+  before its next stage, re-queued at its checkpoint), then SIGKILL after WORKER_CHILD_TERM_S.
+  After every run the supervisor runs gc + malloc_trim. WORKER_SUBPROCESS=0 = the old in-process mode.
 - Daily sweep (in-process scheduler, SWEEP_ENABLED, default on): once a day after SWEEP_HOUR_UTC,
   re-queues companies whose latest run failed or ended unranked/withheld more than
   SWEEP_MIN_AGE_DAYS ago, within SWEEP_DAILY_COST_USD (estimated at SWEEP_EST_RUN_USD per run).
@@ -18,6 +26,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import signal
+import subprocess
+import sys
+import time
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -25,14 +37,15 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from . import alerts
+from . import alerts, memstats
 from .models import ACTIVE_RUN_STATUSES, Company, IngestLog, JudgmentRun, JudgmentStage
 from .pipeline.config import WorkerSettings, worker_settings
-from .pipeline.runner import Deps, execute_run, first_pending_stage
+from .pipeline.runner import Deps, execute_run, first_pending_stage, mark_run_error
 
 log = logging.getLogger("kardashev.worker")
 WORKER_ID = f"{os.getenv('RENDER_INSTANCE_ID', 'local')}-{uuid.uuid4().hex[:8]}"
 SWEEP_TRIGGER = "sweep"
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def _env_f(name: str, default: float) -> float:
@@ -65,6 +78,14 @@ class Worker:
         self.started_at: datetime | None = None
         self.last_tick: datetime | None = None
         self.last_sweep_day: str | None = None
+        self.run_timeout_s = _env_f("WORKER_RUN_TIMEOUT_S", 1800)
+        self.child_poll_s = 0.2
+        self._child: subprocess.Popen | None = None
+        self.last_child: dict | None = None        # pid, exit code, peak RSS of the last run child
+        self.last_release: dict | None = None      # supervisor RSS before/after gc + malloc_trim
+
+    def child_argv(self, run_id: int) -> list[str]:
+        return [sys.executable, "-m", "app.runproc", str(run_id)]
 
     # ---------- sync primitives (also used directly by tests) ----------
     def reconcile_stale(self) -> list[int]:
@@ -131,9 +152,86 @@ class Worker:
         return deps
 
     def run_one(self, run_id: int) -> str:
+        try:
+            if self.settings.subprocess:
+                return self.run_child(run_id)
+            with self.session_factory() as db:
+                run = execute_run(db, run_id, self._deps())
+                return run.status
+        finally:
+            # return what the run (or the wait for it) freed to the OS, so the web process goes back
+            # to its baseline instead of staying at the run's high-water mark
+            self.last_release = memstats.release()
+
+    def run_child(self, run_id: int) -> str:
+        """Run one claimed run in a fresh process and wait for it (called from a thread)."""
+        env = {**os.environ, "KI_RUN_MODE": "subprocess"}
+        proc = subprocess.Popen(self.child_argv(run_id), env=env, cwd=REPO_ROOT, stdin=subprocess.DEVNULL)
+        self._child = proc
+        started, term_at, killed, timed_out = time.monotonic(), None, False, False
+        rc, peak = None, None
+        try:
+            while True:
+                pid, st, ru = os.wait4(proc.pid, os.WNOHANG)
+                if pid:
+                    rc = os.waitstatus_to_exitcode(st)
+                    proc.returncode = rc            # reaped here; keep Popen from waiting again
+                    peak = memstats.maxrss_kb_to_mb(ru.ru_maxrss)
+                    break
+                now = time.monotonic()
+                if term_at is None and (self._stopping or now - started > self.run_timeout_s):
+                    timed_out = not self._stopping
+                    proc.send_signal(signal.SIGTERM)
+                    term_at = now
+                elif term_at is not None and not killed and now - term_at > self.settings.child_term_s:
+                    proc.kill()
+                    killed = True
+                time.sleep(self.child_poll_s)
+        finally:
+            self._child = None
+        self.last_child = {"run_id": run_id, "pid": proc.pid, "exit_code": rc, "peak_rss_mb": peak,
+                           "seconds": round(time.monotonic() - started, 1),
+                           "finished_at": self.now().isoformat()}
+        log.info("run %s child pid %s exited %s (peak RSS %s MB)", run_id, proc.pid, rc, peak)
+        return self._after_child(run_id, rc, shutdown=term_at is not None and not timed_out, timed_out=timed_out)
+
+    def _after_child(self, run_id: int, rc: int, *, shutdown: bool, timed_out: bool) -> str:
         with self.session_factory() as db:
-            run = execute_run(db, run_id, self._deps())
-            return run.status
+            run = db.get(JudgmentRun, run_id)
+            if run is None:
+                return "missing"
+            if run.status != "running":
+                return run.status                  # the child finished the run (any outcome)
+            if shutdown:
+                # the child died while draining (SIGTERM before its handler was installed, or SIGKILL
+                # after WORKER_CHILD_TERM_S): re-queue now at its checkpoint, like a pause - a shutdown
+                # does not use up an attempt
+                db.query(JudgmentStage).filter(JudgmentStage.run_id == run_id,
+                                               JudgmentStage.status == "running").update(
+                    {"status": "interrupted", "finished_at": self.now()}, synchronize_session=False)
+                run.status = "queued"
+                run.attempt = max(0, (run.attempt or 1) - 1)
+                run.current_stage = None
+                run.heartbeat_at = None
+                run.next_attempt_at = None
+                run.error_message = (f"stopped for shutdown (run process exit {rc}); resumes from "
+                                     f"{first_pending_stage(run.checkpoint)}")
+                db.commit()
+                return run.status
+            if timed_out:
+                etype, msg = "timeout", f"run process exceeded WORKER_RUN_TIMEOUT_S ({self.run_timeout_s:.0f}s); stopped"
+            elif rc is not None and rc < 0:
+                sig = -rc
+                name = signal.Signals(sig).name if sig in signal.Signals._value2member_map_ else str(sig)
+                if sig == signal.SIGKILL:
+                    etype, msg = "oom", "run process was killed (SIGKILL), most likely out of memory"
+                else:
+                    etype, msg = "killed", f"run process was killed by {name}"
+            else:
+                etype, msg = "crashed", f"run process exited with code {rc} before finishing the run"
+            run = mark_run_error(db, run_id, etype, msg, transient=True, policy=self.settings, now=self.now())
+            log.warning("run %s: %s", run_id, msg)
+            return run.status if run else "missing"
 
     def beat(self, run_id: int):
         with self.session_factory() as db:
@@ -225,7 +323,12 @@ class Worker:
                "started_at": self.started_at.isoformat() if self.started_at else None,
                "last_tick": self.last_tick.isoformat() if self.last_tick else None,
                "current_run_id": self.current_run_id, "stopping": self._stopping,
-               "last_sweep_day": self.last_sweep_day}
+               "last_sweep_day": self.last_sweep_day,
+               "mode": "subprocess" if self.settings.subprocess else "in-process",
+               "child_pid": self._child.pid if self._child is not None else None,
+               # memory of this (web + supervisor) process; the run child's peak is in last_child
+               "rss_mb": memstats.rss_mb(), "peak_rss_mb": memstats.peak_rss_mb(),
+               "last_child": self.last_child, "last_release": self.last_release}
         try:
             with self.session_factory() as db:
                 queued = db.query(JudgmentRun).filter(JudgmentRun.status == "queued")
@@ -244,6 +347,7 @@ class Worker:
                 out["last_run"] = ({"run_id": last.id, "status": last.status, "ranked": last.ranked,
                                     "published": last.published, "degraded": bool(last.degraded),
                                     "error_type": last.error_type,
+                                    "peak_rss_mb": ((last.summary or {}).get("memory") or {}).get("peak_rss_mb"),
                                     "finished_at": last.finished_at.isoformat() if last.finished_at else None}
                                    if last else None)
         except Exception as e:  # pragma: no cover - /health must not crash

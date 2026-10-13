@@ -230,7 +230,7 @@ All optional; Default (not in `render.yaml`).
 | `SNAPSHOT_MAX_CHARS` | fetched text stored per source | `1000000` |
 | `EXTRACT_MAX_CHARS` / `EXTRACT_PER_SOURCE_CHARS` | text sent to extraction in total / per source | `64000` / `20000` |
 | `LARGE_PDF_ENABLED` | read over-cap PDFs in a capped child process | `1` |
-| `LARGE_PDF_MEMORY_MB`, `LARGE_PDF_CPU_S`, `LARGE_PDF_TIMEOUT_S`, `LARGE_PDF_DEADLINE_S`, `LARGE_PDF_RANGE_BUDGET_MB`, `LARGE_PDF_MAX_DOWNLOAD_MB`, `LARGE_PDF_SCAN_PAGES`, `LARGE_PDF_QUIET_PAGES`, `LARGE_PDF_KEEP_PAGES`, `LARGE_PDF_MAX_CHARS`, `LARGE_PDF_STREAM_MB` | child-process limits (memory, CPU, wall clock, bytes, pages, characters) protecting the 512 MB instance | `256`, `90`, `150`, `120`, `48`, `200`, `120`, `40`, `30`, `400000`, `16` |
+| `LARGE_PDF_MEMORY_MB`, `LARGE_PDF_CPU_S`, `LARGE_PDF_TIMEOUT_S`, `LARGE_PDF_DEADLINE_S`, `LARGE_PDF_RANGE_BUDGET_MB`, `LARGE_PDF_MAX_DOWNLOAD_MB`, `LARGE_PDF_SCAN_PAGES`, `LARGE_PDF_QUIET_PAGES`, `LARGE_PDF_KEEP_PAGES`, `LARGE_PDF_MAX_CHARS`, `LARGE_PDF_STREAM_MB` | child-process limits (memory, CPU, wall clock, bytes, pages, characters) protecting the 512 MB instance | `192`, `90`, `150`, `120`, `48`, `200`, `120`, `40`, `30`, `400000`, `16` |
 | `LARGE_PDF_LIMITS` | internal: passed from the parent process to the child. **Do not set.** | — |
 
 ### Identity and ranking
@@ -249,6 +249,14 @@ All optional; Default (not in `render.yaml`).
 | Variable | Purpose | Default |
 |---|---|---|
 | `WORKER_ENABLED` | run the in-process worker (`0` for previews or a second instance) | `1` |
+| `WORKER_SUBPROCESS` | run each pipeline run in a fresh child process (`python -m app.runproc`), supervised by the in-process worker; `0` = in-process (pre-1.14.0) | `1` |
+| `WORKER_CHILD_TERM_S` / `WORKER_RUN_TIMEOUT_S` | seconds between SIGTERM and SIGKILL for a run child on shutdown (keep below `WORKER_DRAIN_S`); wall-clock cap per run child (error_type `timeout`, re-queued) | `40` / `1800` |
+| `WORKER_CHILD_DEPS` | tests only: `module:function` deps factory for the run child | unset (`app.deps:build_deps`) |
+| `FETCH_HTML_MAX_BYTES` / `FETCH_PDF_INPROCESS_MAX_BYTES` | streamed cap for HTML/text bodies; PDFs above this go to the large-PDF child instead of in-process pypdf | `8000000` / `5000000` |
+| `FETCH_WORKERS` / `PDF_PARSE_SLOTS` | parallel downloads in the fetch stage; PDFs parsed in-process at once | `3` / `1` |
+| `HTML_PARSE_MAX_BYTES` / `HTML_LIGHT_PARSE_BYTES` | HTML cut before parsing; above this size lxml is used instead of BeautifulSoup | `4000000` / `1000000` |
+| `FETCH_PROFILES_FILE` | where header-profile memory is kept between run processes | `<tmp>/kardashev-host-profiles.json` |
+| `MALLOC_ARENA_MAX` | glibc malloc arenas (set in render.yaml) | `2` |
 | `WORKER_POLL_S` / `WORKER_HEARTBEAT_S` / `WORKER_STALE_S` / `WORKER_DRAIN_S` | poll interval, heartbeat, stale-run requeue, shutdown drain (keep below 60) | `15` / `20` / `180` / `45` |
 | `RUN_AUTO_RETRY` / `RUN_MAX_ATTEMPTS` / `RUN_RETRY_DELAYS_MIN` | automatic retries of transient failures | `1` / `4` / `2,10,60` |
 | `SWEEP_ENABLED` / `SWEEP_HOUR_UTC` / `SWEEP_MIN_AGE_DAYS` | daily re-run of withheld / unranked companies (paid) | `1` / `10` (03:00 PDT) / `7` |
