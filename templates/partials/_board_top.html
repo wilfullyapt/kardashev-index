@@ -6,7 +6,7 @@
 {%- endmacro %}
 <div id="board-top" hx-get="/admin/board/top" hx-swap="outerHTML"{% if queue.active %} hx-trigger="every 10s"{% endif %} aria-live="polite">
 <details class="bsec" open>
-  <summary class="bsec__head">Queue <span class="bsec__count">{{ queue.total }}</span>
+  <summary class="bsec__head">Queue · {{ queue.total }}
     {% if queue.active %}<span class="bcard__meta">· live, refreshing every 10 s</span>{% else %}<span class="bcard__meta">· idle</span>{% endif %}</summary>
   {% if not queue.active %}<p class="bcard__meta">Nothing running, queued or scheduled.</p>{% endif %}
   {% for key, label in (("running", "Running"), ("queued", "Queued"), ("scheduled", "Scheduled retries")) %}
