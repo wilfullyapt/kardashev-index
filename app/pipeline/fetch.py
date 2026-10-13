@@ -329,7 +329,7 @@ EMBEDDED_MAX_CHARS = 200_000
 _EMBED_TYPES = ("application/json", "application/ld+json")
 # Site-wide data islands (settings, config, navigation, i18n, cookie banners) repeat on every page and are
 # not the page's content (pipeline-v2.15): skipped by id. Each island contributes at most this much prose.
-_SITEWIDE_ID = re.compile(r"setting|config|site|i18n|locale|translation|\bnav|menu|footer|header|cookie|consent", re.I)
+_SITEWIDE_ID = re.compile(r"setting|config|site|i18n|locale|translation|\bnav|menu|footer|header|cookie|consent", re.IGNORECASE)
 EMBEDDED_PER_SCRIPT_MAX = 40_000
 _URLISH = re.compile(r"^(?:https?:|/|data:|#)|\.(?:png|jpe?g|svg|webp|gif|js|css|woff2?)(?:\?|$)", re.IGNORECASE)
 
