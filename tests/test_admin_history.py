@@ -13,12 +13,12 @@ def _setup(db):
     db.commit()
     runs = []
     for i, kw in enumerate([
-        dict(status="succeeded", ranked=True, published=True, index_score=4.5, coverage=0.62, confidence=0.4,
-             cost_usd=0.21, pipeline_version="pipeline-v2.2"),
-        dict(status="succeeded", ranked=False, published=False, index_score=3.1, coverage=0.5, confidence=0.3,
-             cost_usd=None, pipeline_version="pipeline-v2.4",
-             summary={"not_ranked_reason": "insufficient data: 50% of weight scored", "measured_coverage": 0.44}),
-        dict(status="failed", error_type="timeout", published=False, cost_usd=0.05, pipeline_version="pipeline-v2.13"),
+        {"status": "succeeded", "ranked": True, "published": True, "index_score": 4.5, "coverage": 0.62, "confidence": 0.4,
+             "cost_usd": 0.21, "pipeline_version": "pipeline-v2.2"},
+        {"status": "succeeded", "ranked": False, "published": False, "index_score": 3.1, "coverage": 0.5, "confidence": 0.3,
+             "cost_usd": None, "pipeline_version": "pipeline-v2.4",
+             "summary": {"not_ranked_reason": "insufficient data: 50% of weight scored", "measured_coverage": 0.44}},
+        {"status": "failed", "error_type": "timeout", "published": False, "cost_usd": 0.05, "pipeline_version": "pipeline-v2.13"},
     ]):
         r = JudgmentRun(company_id=c.id, trigger="t", triggered_by="t", attempt=1, queued_at=T0 + timedelta(days=i),
                         finished_at=T0 + timedelta(days=i), **kw)
