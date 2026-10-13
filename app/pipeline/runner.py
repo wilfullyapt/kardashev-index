@@ -39,7 +39,8 @@ from .config import Settings, WorkerSettings, code_version, worker_settings
 from .edgar import FACTS_URL, EdgarClient, EdgarError, IdentityCheck, check_identity, financials
 from .disclosure import classify as energy_disclosure
 from .discover import is_report_page, pick, report_links
-from .fetch import ARCHIVE_STATUSES, BROWSER_HEADERS, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body
+from .fetch import ARCHIVE_STATUSES, BROWSER_HEADERS, Fetcher, HttpFetcher, SourceChecker, Wayback, is_pdf_body, is_sec_host
+from . import filings
 from .largepdf import read_large_pdf, rescue_oversized
 from .llm import LLM, LLMError, LLMResult, extract_json
 from .sources import rank_candidates
@@ -541,6 +542,9 @@ def stage_fetch(ctx: RunContext):
                 ctx.candidates.append({"url": u, "title": None, "covers": ["energy"], "origin": "retry",
                                        "why": "energy source that couldn't be read in the previous run"})
             st.detail["retry_strategy"] = {"strategy": strategy, "urls": sorted(retry_urls)}
+        ctx.candidates, skipped = filings.prefilter(ctx.candidates)
+        if skipped:
+            st.detail["skipped"] = skipped[:20]
         if not ctx.candidates:
             st.skip("no candidate sources")
             return
@@ -563,23 +567,30 @@ def stage_fetch(ctx: RunContext):
                 a = rescue_oversized(url, res, a, big_pdf)   # over-cap PDF: relevant pages only
             return a
 
+        archive_hosts = ctx.s.fetch_archive_first_hosts
+
         def work(c):
             retrying = c["url"] in retry_urls
-            if retrying and strategy == "archive_first" and wb is not None:
-                arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
+            sec = is_sec_host(c["url"])        # SEC: always the declared client, live, never archived
+            host = (urlsplit(c["url"]).hostname or "").lower()
+            pre_att = None
+            if (not sec and wb is not None
+                    and ((retrying and strategy == "archive_first") or host in archive_hosts)):
+                arch, aa, pre_att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
                 if arch is not None:
-                    return c, arch, aa, None, att
-            if retrying and strategy == "browser_first":
+                    return c, arch, aa, None, pre_att
+            if retrying and strategy == "browser_first" and not sec:
                 res = ctx.deps.fetcher.get(c["url"], headers=dict(BROWSER_HEADERS))
             else:
                 res = ctx.deps.fetcher.get(c["url"])
             a = accept(c["url"], res)
-            if a.status != "ok" and wb is not None and res.status in ARCHIVE_STATUSES:
+            if a.status != "ok" and wb is not None and res.status in ARCHIVE_STATUSES and not sec \
+                    and host not in archive_hosts:     # archive-first hosts were already looked up
                 arch, aa, att = wb.fetch(c["url"], lambda r: accept(c["url"], r))
                 if arch is not None:
                     return c, arch, aa, res, att
                 return c, res, a, None, att
-            return c, res, a, None, None
+            return c, res, a, None, pre_att
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             results = list(pool.map(work, ctx.candidates))
@@ -630,6 +641,8 @@ def stage_fetch(ctx: RunContext):
                 src.archive_timestamp = res.archive_timestamp
                 src.reject_reason = (f"original answered HTTP {original.status}; using the Wayback Machine copy"
                                      if original is not None else
+                                     "host refuses automated clients (archive first): using the Wayback Machine copy"
+                                     if (urlsplit(c["url"]).hostname or "").lower() in archive_hosts else
                                      "energy retry (archive first): using the Wayback Machine copy")
                 archived.append(c["url"])
             ctx.db.add(src)

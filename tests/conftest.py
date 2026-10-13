@@ -12,6 +12,7 @@ for _k in ("XAI_API_KEY", "GROK_API_KEY", "OPENAI_API_KEY", "SEC_EDGAR_USER_AGEN
            "JUDGE_MAX_COST_USD", "RENDER", "APP_ENV", "SESSION_COOKIE_SECURE"):
     os.environ.pop(_k, None)
 os.environ["WORKER_ENABLED"] = "0"
+os.environ["FETCH_ARCHIVE_FIRST_HOSTS"] = ""   # tests opt in explicitly (fixtures use tesla.com URLs)
 os.environ["HERMES_API_KEY"] = "test-hermes-key"
 os.environ["ADMIN_EMAIL"] = "admin@example.com"
 os.environ["SECRET_KEY"] = "test-secret"

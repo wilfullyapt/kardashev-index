@@ -277,9 +277,15 @@ def _resolve_final(client, url: str, headers: dict, resolve) -> tuple[httpx.Resp
     raise httpx.TooManyRedirects("too many redirects")
 
 
-def _base_headers() -> dict:
-    from .fetch import BROWSER_HEADERS
-    return {**BROWSER_HEADERS, "Accept-Encoding": "identity", "Accept": "application/pdf,*/*;q=0.5"}
+def _base_headers(url: str | None = None) -> dict:
+    """Browser-like headers for PDF hosts; SEC hosts get the declared SEC_EDGAR_USER_AGENT (pipeline-v2.14),
+    since sec.gov refuses browser User-Agents from automated clients."""
+    from .fetch import BROWSER_HEADERS, is_sec_host
+    h = {**BROWSER_HEADERS, "Accept-Encoding": "identity", "Accept": "application/pdf,*/*;q=0.5"}
+    sec_ua = (os.getenv("SEC_EDGAR_USER_AGENT") or "").strip()
+    if url and sec_ua and is_sec_host(url):
+        h["User-Agent"] = sec_ua
+    return h
 
 
 class RangeFile:
@@ -306,7 +312,7 @@ class RangeFile:
             raise BudgetExceeded(f"range budget of {self.budget // 1_000_000} MB reached")
         from .fetch import check_url_allowed
         check_url_allowed(self.url, self._resolve)
-        hdrs = {**_base_headers(), "Range": f"bytes={start}-{end}"}
+        hdrs = {**_base_headers(self.url), "Range": f"bytes={start}-{end}"}
         r = self.client.get(self.url, headers=hdrs)
         if r.status_code in (429, 503):            # one polite retry (archive.org rate-limits)
             ra = r.headers.get("retry-after", "")
@@ -354,7 +360,7 @@ class RangeFile:
 
 def probe_range(client, url: str, resolve) -> tuple[str, int | None, bool]:
     """(final url, total size or None, ranges supported?)."""
-    resp, final = _resolve_final(client, url, {**_base_headers(), "Range": "bytes=0-1023"}, resolve)
+    resp, final = _resolve_final(client, url, {**_base_headers(url), "Range": "bytes=0-1023"}, resolve)
     try:
         total = None
         cr = resp.headers.get("content-range", "")
@@ -370,7 +376,7 @@ def probe_range(client, url: str, resolve) -> tuple[str, int | None, bool]:
 
 
 def stream_to_disk(client, url: str, path: str, max_bytes: int, resolve) -> int:
-    resp, _ = _resolve_final(client, url, _base_headers(), resolve)
+    resp, _ = _resolve_final(client, url, _base_headers(url), resolve)
     size = 0
     try:
         if resp.status_code != 200:

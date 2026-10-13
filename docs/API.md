@@ -232,6 +232,14 @@ a cache, re-synced after a run or a retraction):
   stops the fallback for the rest of the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
   not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
   copy was used, appended to the source's reason (shown on the admin run page).
+- **SEC fetch and filings** (pipeline-v2.14):
+  - Every request to `*.sec.gov` carries `SEC_EDGAR_USER_AGENT`, even when the caller passes its own headers. That covers energy retries and the large-PDF reader; sec.gov answers browser User-Agents with "Undeclared Automated Tool" 403s.
+  - SEC URLs are never fetched with the `browser_first` retry headers and never looked up in the Wayback Machine.
+  - SEC full-submission `.txt` files (`/Archives/edgar/data/<cik>/<accession>.txt`) are never fetched.
+  - At most one annual report (10-K / 20-F / 40-F) is read per run. Order of preference: the edgar stage's candidate, then sec.gov, then the newest other copy. IR mirrors such as `ir.<co>.com/_flysystem/s3/sec/...` are skipped when a better copy exists.
+  - Skipped candidates are listed in the fetch stage detail (`skipped`).
+  - Hosts in `FETCH_ARCHIVE_FIRST_HOSTS` (default `tesla.com`, `www.tesla.com`, `ir.tesla.com`) refuse every automated client, so they are looked up in the Wayback Machine first. They are fetched live only if no usable copy exists.
+  - `/health` reports `config.sec_edgar_user_agent_format_ok`, and a startup warning is logged when the SEC User-Agent isn't in `Name contact@domain` form.
 - **Alternative sources** (pipeline-v2.13): the edgar stage adds the latest original 10-K / 20-F /
   40-F primary document (from `data.sec.gov/submissions`) as a candidate (`origin: filing`, primary,
   fetched with `SEC_EDGAR_USER_AGENT`; `EDGAR_ANNUAL_REPORT`). When no energy-tagged source was read,
@@ -341,6 +349,7 @@ a cache, re-synced after a run or a retraction):
 | `XAI_MAX_RETRIES` / `XAI_BACKOFF_MAX_S` | `3` / `60` | in-call retries for 408/409/429/5xx and timeouts (honors `Retry-After`) |
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
 | `FETCH_UA_STRATEGY` / `FETCH_BOT_USER_AGENT` | `honest_first` / `KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)` | header profile: ask as the declared bot first, retry once with browser headers on 401/403/406 and remember per host what worked (`browser` = the pre-1.7.0 behaviour); the bot User-Agent string |
+| `FETCH_ARCHIVE_FIRST_HOSTS` | `tesla.com,www.tesla.com,ir.tesla.com` | (pipeline-v2.14) exact hosts asked via the Wayback Machine first (live only if no usable copy); subdomains not implied; empty string = off |
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
 | `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | `1.5` / `2` / `120` | seconds between archive.org requests (shared by all runs, one at a time); backoff retries on 429/5xx/outage; longest `Retry-After` honoured |
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | `1` / `60` / `400` | pause-and-probe cycles before the breaker opens for the run; pause when no `Retry-After` is sent; real archive.org requests per day across runs (`0` = no cap) |
