@@ -724,3 +724,14 @@ td.actions { text-align: right; white-space: nowrap; }
 .hcmp__t thead th { position: sticky; top: 0; }
 .hcmp__t tbody th { position: sticky; left: 0; background: inherit; white-space: nowrap; }
 .hcmp__cur { outline: 2px solid currentColor; outline-offset: -2px; }
+
+/* pipeline version chip + admin phone fixes (1.10.1) */
+.vchip { display: inline-block; font-size: .75rem; line-height: 1.2; padding: .1rem .45rem; border: 1px solid rgba(127,127,127,.45); border-radius: 999px; white-space: nowrap; vertical-align: middle; }
+.vchip--none { opacity: .7; border-style: dashed; }
+.bcard__meta { font-size: .9rem; line-height: 1.45; }
+.bcard__line { margin: .15rem 0; }
+.bcard__sum { display: flex; align-items: center; justify-content: center; list-style: none; cursor: pointer; width: 100%; }
+.bcard__sum::-webkit-details-marker { display: none; }
+.bq__line { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .2rem 0; }
+.hcmp__hint { display: none; font-size: .85rem; opacity: .8; text-align: center; margin: .5rem 0 0; }
+@media (max-width: 52rem) { .hcmp__hint { display: block; } }

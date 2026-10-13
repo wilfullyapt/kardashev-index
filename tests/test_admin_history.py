@@ -57,7 +57,7 @@ def test_history_page(admin_client, db):
     html = admin_client.get(f"/admin/companies/{c.id}/history").text
     for s in ("v2.2", "v2.4", "v2.13", "62%", "40%", "4.50", "$0.21", "cost unknown", "failed (timeout)",
               "withheld", "measured 44%", "insufficient data: 50% of weight scored",
-              f'href="/admin/runs/{runs[0].id}"', "2026-10-01 10:00 PDT"):
+              f'href="/admin/runs/{runs[0].id}"', "2026-10-01", "10:00 PDT"):
         assert s in html, s
     assert html.index(f"#{runs[2].id}") < html.index(f"#{runs[0].id}")
 

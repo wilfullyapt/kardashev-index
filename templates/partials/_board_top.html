@@ -1,8 +1,11 @@
 {# Board live block (1.9.0). Polls every 10 s only while something is running, queued or scheduled;
    the idle response has no hx-trigger, so polling stops by itself. #}
+{%- import "partials/_admin.html" as adm -%}
 {% macro item(x, when_label, when) -%}
 <li class="bq__item"><a href="/admin/runs/{{ x.run.id }}">{{ x.company.official_name or x.company.canonical_name }}</a>
-  <span class="bcard__meta">run #{{ x.run.id }} · attempt {{ x.run.attempt or 1 }} · {{ when_label }} {{ when|pt }}</span></li>
+  <span class="bq__line"><span class="runstat runstat--{{ x.run.status }}">{{ "scheduled" if x.run.next_attempt_at and x.run.status == "queued" else x.run.status }}</span> {{ adm.ver(x.run) }}</span>
+  <span class="bcard__meta">run #{{ x.run.id }} · attempt {{ x.run.attempt or 1 }}</span>
+  <span class="bcard__meta">{{ when_label }} {{ when|pt }}</span></li>
 {%- endmacro %}
 <div id="board-top" hx-get="/admin/board/top" hx-swap="outerHTML"{% if queue.active %} hx-trigger="every 10s"{% endif %} aria-live="polite">
 <details class="bsec" open>

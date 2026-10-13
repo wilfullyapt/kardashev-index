@@ -23,6 +23,7 @@
   · <a href="/companies/{{ c.id }}">Public page</a>{% if h.total > h.limit %} · showing newest {{ h.limit }}{% endif %}</p>
 
 {% if not h.rows %}<p>No runs yet.</p>{% else %}
+<p class="hcmp__hint">← Swipe sideways to see every column →</p>
 <div class="hcmp" role="region" aria-label="Runs side by side" tabindex="0">
 <table class="hcmp__t">
   <thead><tr>
@@ -34,8 +35,8 @@
   {% for x in h.rows %}{% set r = x.run %}
   <tr{% if x.current %} class="hcmp__cur"{% endif %}>
     <th scope="row"><a href="/admin/runs/{{ r.id }}">#{{ r.id }}</a>{% if x.current %} <span class="chip">current</span>{% endif %}</th>
-    <td>{{ (r.pipeline_version or "—")|replace("pipeline-", "") }}</td>
-    <td>{{ (r.finished_at or r.queued_at)|pt }}</td>
+    <td>{{ adm.ver(r) }}{% if r.pipeline_version %}<br><span class="bcard__meta">{{ adm.subver(r) }}</span>{% endif %}</td>
+    <td class="nowrap">{{ (r.finished_at or r.queued_at)|pt_date }}<br><span class="bcard__meta">{{ (r.finished_at or r.queued_at)|pt("%H:%M") }}</span></td>
     <td>{% if r.coverage is not none %}{{ "%.0f"|format(r.coverage * 100) }}%{% else %}—{% endif %}{% if x.measured is not none %}<br><span class="bcard__meta">measured {{ "%.0f"|format(x.measured * 100) }}%</span>{% endif %}</td>
     <td>{% if r.confidence is not none %}{{ "%.0f"|format(r.confidence * 100) }}%{% else %}—{% endif %}</td>
     <td>{% if r.index_score is not none %}{{ "%.2f"|format(r.index_score) }}{% else %}—{% endif %}</td>
@@ -48,6 +49,6 @@
   </tbody>
 </table>
 </div>
-<p class="bcard__meta">Newest first. “Ranked” is each run’s own decision; “current” is the run the public page shows now. Scroll sideways on a phone.</p>
+<p class="bcard__meta">Newest first. “Ranked” is each run’s own decision; “current” is the run the public page shows now.</p>
 {% endif %}
 {% endblock %}

@@ -10,6 +10,15 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.10.1] — Pipeline version on every admin run surface
+
+### Added
+- Shared admin chip `adm.ver(run)` ("pipeline v2.13"; the tooltip lists prompts / rubrics / weights). A run that never started shows "not started", since versions are recorded at start. Shown on board cards (last run, active run, and the current run when it differs), queue rows, the Classic companies table (current + last), the runs list (with prompts · rubrics · weights) and history compare (with prompts · rubrics · weights).
+
+### Changed
+- Admin phone fixes: larger, multi-line card meta; Retract is a 44px button; history dates on two lines with a visible "swipe sideways" hint; queue rows put status and version on their own line.
+- Admin only: no public page, data, DB or scoring changes.
+
 ## [1.10.0] — Admin run history compare view
 
 ### Added
