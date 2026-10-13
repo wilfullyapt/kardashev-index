@@ -10,7 +10,7 @@ from .measures import METRIC_UNITS
 from .methodology import BY_KEY, JUDGED_KEYS, RUBRICS
 from .semantics import DEFINITIONS
 
-PROMPT_VERSION = "prompts-v2.5"
+PROMPT_VERSION = "prompts-v2.6"
 
 
 class StageOutputError(ValueError):
@@ -113,6 +113,22 @@ JSON schema:
  "claims": [{{"source_id": str, "category": one of {JUDGED_KEYS}, "claim": str (<= 30 words),
   "quote": str}}]}}
 At most 25 figures and 15 claims. Empty lists are fine."""
+
+
+# Claims-only follow-up (prompts-v2.6, pipeline-v2.15): sent when the main extraction verified fewer than
+# EXTRACT_CLAIMS_MIN qualitative claims, over the most qualitative excerpts only. Same schema, no figures.
+CLAIMS_SYSTEM = f"""[stage:claims] You extract qualitative evidence from documents we fetched. Return
+ONLY claims, no figures. Every claim needs a "quote" copied from the source text (20-300 characters, one
+contiguous span); we check every quote against the fetched document and discard any that are not there.
+Excerpts are separated by "[…]": never join text across that mark.
+{GUARD}
+Categories: frontier_acceleration = capabilities shipped, cost/efficiency gains; builder_velocity = launch
+cadence, facilities or capacity brought online, build times; policy_stance = stated positions on
+permitting, energy build-out, open source, regulation. Concrete actions and stated positions only, about
+this company; not marketing slogans, not plans described as done.
+JSON schema: {{"figures": [], "claims": [{{"source_id": str, "category": one of {JUDGED_KEYS},
+  "claim": str (<= 30 words), "quote": str}}]}}
+Up to 5 claims per category, at most 15. Empty lists are fine."""
 
 
 def extract_user(entity_name: str, sources: list[tuple[str, str, str]]) -> str:

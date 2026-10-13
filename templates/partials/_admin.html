@@ -87,6 +87,8 @@
         <p class="bcard__line">Last run {{ (last.finished_at or last.queued_at)|pt }}</p>
         <p class="bcard__line">{{ status(last) }} · {{ adm_cost(last.cost_usd) }} · {{ ver(last) }}</p>
         {%- if cur and cur.id != last.id %}<p class="bcard__line">Current run #{{ cur.id }} · {{ ver(cur) }}</p>{% endif -%}
+        {%- set nclaims = (cur.summary or {}).get('claims_verified') if cur else none %}
+        {%- if nclaims == 0 %}<p class="bcard__line"><span class="claimwarn" title="No qualitative claims were verified in the current run, so its opinion categories are unscored">⚠ 0 claims</span></p>{% endif -%}
         {%- else %}<p class="bcard__line">No completed run</p>{% endif -%}
     </div>
     <div class="bcard__actions">

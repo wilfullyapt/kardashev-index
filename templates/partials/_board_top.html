@@ -42,7 +42,7 @@
   {% if health.error %}<p class="bcard__meta">Health data unavailable ({{ health.error }}).</p>{% else %}
   <p class="bstat"><span>Failed runs</span><strong>{{ health.failed_total }}</strong></p>
   {% if health.failures %}<p class="bcard__meta">{% for k, v in health.failures %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}</p>{% endif %}
-  <p class="bcard__meta">{{ health.succeeded }} succeeded · {{ health.degraded }} degraded · {{ health.energy_unreadable }} energy unreadable · {{ health.withheld }} withheld</p>
+  <p class="bcard__meta">{{ health.succeeded }} succeeded · {{ health.degraded }} degraded · {{ health.energy_unreadable }} energy unreadable · {{ health.withheld }} withheld{% if health.zero_claims %} · <span class="runstat runstat--failed">{{ health.zero_claims }} with 0 claims</span>{% endif %}</p>
   <p class="bstat"><span>archive.org today</span><strong>{{ health.archive.used_today if health.archive.used_today is not none else "?" }} / {{ health.archive.daily_max if health.archive.daily_max is not none else "?" }}</strong></p>
   {% if health.hosts %}<p class="bcard__meta">Worst sites:</p>
   <ul class="bq">{% for h in health.hosts %}<li class="bq__item">{{ h.host }} <span class="bcard__meta">{{ h.failed }}/{{ h.total }} failed</span></li>{% endfor %}</ul>{% endif %}

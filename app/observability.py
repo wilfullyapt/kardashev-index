@@ -49,6 +49,7 @@ def collect(db: Session, *, now: datetime | None = None, days: float | None = No
     since = now - timedelta(days=days)
 
     runs = Counter()
+    zero_claims: list[dict] = []
     for r in db.query(JudgmentRun).filter(JudgmentRun.finished_at >= since):
         if r.status == "failed":
             runs[f"failed:{r.error_type or 'unknown'}"] += 1
@@ -62,6 +63,9 @@ def collect(db: Session, *, now: datetime | None = None, days: float | None = No
             runs["energy_unreadable"] += 1
         if not r.published:
             runs["withheld"] += 1
+        if (r.summary or {}).get("claims_verified") == 0:     # recorded since pipeline-v2.15
+            runs["zero_claims"] += 1
+            zero_claims.append({"run_id": r.id, "company_id": r.company_id})
 
     hosts: dict[str, Counter] = defaultdict(Counter)
     q = (db.query(Source.url, Source.status, Source.http_status, Source.archive_attempt)
@@ -92,6 +96,7 @@ def collect(db: Session, *, now: datetime | None = None, days: float | None = No
 
     return {"window_days": days, "runs_7d": dict(runs), "hosts_7d": hosts_out,
             "retry_claims_without_queued_run": stale,
+            "zero_claims_runs": sorted(zero_claims, key=lambda x: -x["run_id"])[:10],
             "archive": {"used_today": ARCHIVE_BUDGET.used, "daily_max": settings().wayback_daily_max},
             "computed_at": now.isoformat()}
 

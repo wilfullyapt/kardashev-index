@@ -232,6 +232,11 @@ a cache, re-synced after a run or a retraction):
   stops the fallback for the rest of the run. Every attempt is stored on the source as `archive_attempt` (`lookup`, `outcome`: used /
   not_found / unusable / rate_limited / unavailable / capped, `note`, `used`, `tried`) and, when no
   copy was used, appended to the source's reason (shown on the admin run page).
+- **Qualitative evidence and claims** (pipeline-v2.15, prompts-v2.6):
+  - Extraction budget: the `EXTRACT_QUAL_SOURCES` (3) sources with the most qualitative passages (launches, build-outs, policy; filings excluded) each get at least `EXTRACT_QUAL_FLOOR_CHARS` (6,000). SEC filings and annual reports are capped at `EXTRACT_FILING_MAX_CHARS` (8,000). The extract stage detail shows `budget_plan`.
+  - When fewer than `EXTRACT_CLAIMS_MIN` (3) claims are verified, one claims-only call (`CLAIMS_SYSTEM`, `[stage:claims]`) reads the most qualitative excerpts (≤ `EXTRACT_CLAIMS_FOLLOWUP_CHARS`, filings excluded; ≤ `EXTRACT_CLAIMS_FOLLOWUP_MAX_TOKENS` output). It is skipped unless `EXTRACT_CLAIMS_FOLLOWUP_MAX_USD` plus the judge reserve still fits under the run cap, and is never fatal. Its claims are verified like any other, and repeats are dropped. Recorded in the extract detail under `claims_followup`.
+  - `summary.claims_verified` is recorded on every run. `/health` observability adds `runs_7d.zero_claims` and `zero_claims_runs`. Admin board cards show "⚠ 0 claims" when the current run verified none, and the board's health block counts them.
+  - Embedded JSON: site-wide data islands (ids containing setting/config/site/nav/menu/footer/header/cookie/consent/i18n/locale) are skipped. `__NEXT_DATA__` contributes only `props.pageProps`, and each island is capped at 40,000 chars of prose.
 - **SEC fetch and filings** (pipeline-v2.14):
   - Every request to `*.sec.gov` carries `SEC_EDGAR_USER_AGENT`, even when the caller passes its own headers. That covers energy retries and the large-PDF reader; sec.gov answers browser User-Agents with "Undeclared Automated Tool" 403s.
   - SEC URLs are never fetched with the `browser_first` retry headers and never looked up in the Wayback Machine.
@@ -350,6 +355,8 @@ a cache, re-synced after a run or a retraction):
 | `FETCH_RETRIES` / `FETCH_WAYBACK` / `FETCH_MAX_BYTES` | `2` / `1` / `30000000` | fetch retries, Wayback fallback, max download size |
 | `FETCH_UA_STRATEGY` / `FETCH_BOT_USER_AGENT` | `honest_first` / `KardashevIndexBot/1.0 (+https://www.kardashevindex.com/about)` | header profile: ask as the declared bot first, retry once with browser headers on 401/403/406 and remember per host what worked (`browser` = the pre-1.7.0 behaviour); the bot User-Agent string |
 | `FETCH_ARCHIVE_FIRST_HOSTS` | `tesla.com,www.tesla.com,ir.tesla.com` | (pipeline-v2.14) exact hosts asked via the Wayback Machine first (live only if no usable copy); subdomains not implied; empty string = off |
+| `EXTRACT_QUAL_FLOOR_CHARS` / `EXTRACT_QUAL_SOURCES` / `EXTRACT_FILING_MAX_CHARS` | `6000` / `3` / `8000` | (pipeline-v2.15) qualitative floor for the top-N qualitative sources; per-source cap for SEC filings / annual reports |
+| `EXTRACT_CLAIMS_FOLLOWUP` / `EXTRACT_CLAIMS_MIN` / `EXTRACT_CLAIMS_FOLLOWUP_CHARS` / `EXTRACT_CLAIMS_FOLLOWUP_MAX_USD` / `EXTRACT_CLAIMS_FOLLOWUP_MAX_TOKENS` | `1` / `3` / `24000` / `0.05` / `4000` | (pipeline-v2.15) claims-only follow-up call (at most one per run) when fewer than 3 claims were verified; skipped if it could break the per-run cap |
 | `FETCH_WAYBACK_MAX_REQUESTS` | `16` | archive.org requests (lookups + copies) per run |
 | `FETCH_WAYBACK_MIN_INTERVAL_S` / `FETCH_WAYBACK_RETRIES` / `FETCH_WAYBACK_RETRY_AFTER_CAP_S` | `1.5` / `2` / `120` | seconds between archive.org requests (shared by all runs, one at a time); backoff retries on 429/5xx/outage; longest `Retry-After` honoured |
 | `FETCH_WAYBACK_RESUMES` / `FETCH_WAYBACK_PAUSE_S` / `FETCH_WAYBACK_DAILY_MAX` | `1` / `60` / `400` | pause-and-probe cycles before the breaker opens for the run; pause when no `Retry-After` is sent; real archive.org requests per day across runs (`0` = no cap) |

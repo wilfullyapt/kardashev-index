@@ -327,6 +327,10 @@ def extract_text(content_type: str, body: bytes, url: str = "") -> tuple[str, st
 EMBEDDED_MIN_VISIBLE = 2000
 EMBEDDED_MAX_CHARS = 200_000
 _EMBED_TYPES = ("application/json", "application/ld+json")
+# Site-wide data islands (settings, config, navigation, i18n, cookie banners) repeat on every page and are
+# not the page's content (pipeline-v2.15): skipped by id. Each island contributes at most this much prose.
+_SITEWIDE_ID = re.compile(r"setting|config|site|i18n|locale|translation|\bnav|menu|footer|header|cookie|consent", re.IGNORECASE)
+EMBEDDED_PER_SCRIPT_MAX = 40_000
 _URLISH = re.compile(r"^(?:https?:|/|data:|#)|\.(?:png|jpe?g|svg|webp|gif|js|css|woff2?)(?:\?|$)", re.IGNORECASE)
 
 
@@ -353,17 +357,25 @@ def embedded_json_texts(soup) -> list[str]:
         kind = (tag.get("type") or "").lower().split(";")[0].strip()
         if kind not in _EMBED_TYPES and tag.get("id") != "__NEXT_DATA__":
             continue
+        if tag.get("id") != "__NEXT_DATA__" and _SITEWIDE_ID.search(tag.get("id") or ""):
+            continue
         raw = tag.string or tag.get_text() or ""
         try:
             data = json.loads(raw)
         except ValueError:
             continue
+        if tag.get("id") == "__NEXT_DATA__" and isinstance(data, dict):
+            data = (data.get("props") or {}).get("pageProps", data)   # the page's own data, not app config
+        own = 0
         for t in _prose(data):
             t = _norm_ws(t)
             if t in seen:
                 continue
+            if own >= EMBEDDED_PER_SCRIPT_MAX:
+                break
             seen.add(t)
             out.append(t)
+            own += len(t)
             total += len(t)
             if total > EMBEDDED_MAX_CHARS:
                 return out

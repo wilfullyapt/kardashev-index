@@ -408,21 +408,34 @@ def select(text: str, budget: int, p: Plan | None = None, avoid: set[int] | None
     return GAP.join(out), chosen
 
 
-def allocate(plans: dict, lengths: dict, total: int, per_cap: int, floor: int = 2500) -> dict:
+def qual_relevance(p: Plan) -> float:
+    """How much qualitative material (launches, build-outs, policy) a source has: its best chunks."""
+    return sum(sorted((x for x in p.qual if x > 0), reverse=True)[:8])
+
+
+def allocate(plans: dict, lengths: dict, total: int, per_cap: int, floor: int = 2500,
+             caps: dict | None = None, qual_keys=(), qual_floor: int = 0) -> dict:
     """Split the extraction budget across sources: every source gets a floor, the rest goes to the
-    sources with the most relevant content (energy tables first), capped per source."""
-    budgets = {k: min(lengths[k], floor) for k in plans}
+    sources with the most relevant content (energy tables first), capped per source.
+    pipeline-v2.15: ``caps`` lowers the cap of individual sources (filings), and ``qual_keys`` (the most
+    qualitative sources) get at least ``qual_floor`` so claims are not crowded out by tables."""
+    caps = caps or {}
+    cap = {k: min(lengths[k], per_cap, caps.get(k, per_cap)) for k in plans}
+    budgets = {k: min(cap[k], floor) for k in plans}
+    for k in qual_keys:
+        if k in budgets:
+            budgets[k] = max(budgets[k], min(cap[k], qual_floor))
     left = max(0, total - sum(budgets.values()))
     rel = {k: min(plans[k].relevance, 300.0) ** 0.5 for k in plans}
     while left > 0:
-        open_ = {k: r for k, r in rel.items() if budgets[k] < min(lengths[k], per_cap)}
+        open_ = {k: r for k, r in rel.items() if budgets[k] < cap[k]}
         if not open_:
             break
         weight = sum(open_.values()) or float(len(open_))
         given = 0
         for k, r in open_.items():
             share = int(left * ((r or (1.0 if not sum(open_.values()) else 0)) / weight))
-            room = min(lengths[k], per_cap) - budgets[k]
+            room = cap[k] - budgets[k]
             add = max(0, min(room, share))
             budgets[k] += add
             given += add
@@ -430,3 +443,31 @@ def allocate(plans: dict, lengths: dict, total: int, per_cap: int, floor: int = 
         if given == 0:
             break
     return budgets
+
+
+def qualitative_excerpts(texts: dict, plans: dict, budget: int, exclude=()) -> dict:
+    """The most qualitative ~1 kB chunks across sources (pipeline-v2.15 claims follow-up), verbatim and in
+    document order per source, joined by GAP. Returns {source_key: excerpt} for sources with any."""
+    ranked = sorted(((x, k, i) for k, p in plans.items() if k not in exclude for i, x in enumerate(p.qual) if x > 0),
+                    key=lambda t: (-t[0], str(t[1]), t[2]))
+    chosen: dict = {}
+    used = 0
+    for _x, k, i in ranked:
+        s, e = plans[k].spans[i]
+        if used + (e - s) > budget:
+            continue
+        chosen.setdefault(k, set()).add(i)
+        used += e - s
+    out = {}
+    for k, idx in chosen.items():
+        text = texts[k]
+        parts, prev = [], None
+        for i in sorted(idx):
+            s, e = plans[k].spans[i]
+            if prev is not None and i - 1 == prev:
+                parts[-1] += text[plans[k].spans[prev][1]:e]
+            else:
+                parts.append(text[s:e])
+            prev = i
+        out[k] = GAP.join(parts)
+    return out

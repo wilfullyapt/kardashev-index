@@ -88,6 +88,20 @@ class Settings:
     research_max_tokens: int = field(default_factory=lambda: _i("JUDGE_RESEARCH_MAX_TOKENS", 16000))
     extract_max_tokens: int = field(default_factory=lambda: _i("JUDGE_EXTRACT_MAX_TOKENS", 16000))
     judge_max_tokens: int = field(default_factory=lambda: _i("JUDGE_JUDGE_MAX_TOKENS", 8000))
+    # Qualitative evidence (pipeline-v2.15). The top EXTRACT_QUAL_SOURCES sources by qualitative relevance
+    # (launches, build-outs, policy; filings excluded) get at least EXTRACT_QUAL_FLOOR_CHARS of the extraction
+    # budget; SEC filings / annual reports are capped at EXTRACT_FILING_MAX_CHARS (mostly tables).
+    extract_qual_floor_chars: int = field(default_factory=lambda: _i("EXTRACT_QUAL_FLOOR_CHARS", 6000))
+    extract_qual_sources: int = field(default_factory=lambda: _i("EXTRACT_QUAL_SOURCES", 3))
+    extract_filing_max_chars: int = field(default_factory=lambda: _i("EXTRACT_FILING_MAX_CHARS", 8000))
+    # Claims-only follow-up call when fewer than EXTRACT_CLAIMS_MIN qualitative claims were verified: one
+    # extra, smaller xAI call per run over the most qualitative excerpts (<= EXTRACT_CLAIMS_FOLLOWUP_CHARS),
+    # skipped unless EXTRACT_CLAIMS_FOLLOWUP_MAX_USD (plus the judge reserve) still fits under the run cap.
+    claims_followup: bool = field(default_factory=lambda: _b("EXTRACT_CLAIMS_FOLLOWUP", True))
+    claims_min: int = field(default_factory=lambda: _i("EXTRACT_CLAIMS_MIN", 3))
+    claims_followup_chars: int = field(default_factory=lambda: _i("EXTRACT_CLAIMS_FOLLOWUP_CHARS", 24000))
+    claims_followup_max_usd: float = field(default_factory=lambda: _f("EXTRACT_CLAIMS_FOLLOWUP_MAX_USD", 0.05))
+    claims_followup_max_tokens: int = field(default_factory=lambda: _i("EXTRACT_CLAIMS_FOLLOWUP_MAX_TOKENS", 4000))
     # Spend kept back for the judge when gathering stages run into the per-run cap.
     judge_reserve_usd: float = field(default_factory=lambda: _f("JUDGE_RESERVE_USD", 0.04))
     # Reuse a confidently resolved identity (skips the resolve search) for this many days.

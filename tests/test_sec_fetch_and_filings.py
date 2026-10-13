@@ -206,4 +206,4 @@ def test_browser_first_energy_retry_skips_browser_headers_for_sec(db):
     execute_run(db, retry.id, fakes.make_deps(llm2, fetcher=Spy(routes2)))
     assert captured[SEC_DOC] == {}
     assert any(h.get("User-Agent") == USER_AGENT for u, h in captured.items() if "sec.gov" not in u)
-    assert db.get(JudgmentRun, retry.id).pipeline_version == "pipeline-v2.14"
+    assert db.get(JudgmentRun, retry.id).pipeline_version == __import__("app.pipeline.methodology", fromlist=["x"]).PIPELINE_VERSION

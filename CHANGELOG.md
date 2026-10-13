@@ -10,6 +10,19 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.13.0] — Qualitative evidence budget, claims-only follow-up, 0-claims visibility (pipeline-v2.15, prompts-v2.6)
+
+### Changed
+- **Extraction budget:** the 3 most qualitative sources (filings excluded) get at least 6,000 chars each (`EXTRACT_QUAL_FLOOR_CHARS`, `EXTRACT_QUAL_SOURCES`). SEC filings and annual reports are capped at 8,000 chars (`EXTRACT_FILING_MAX_CHARS`). Large filers' runs were sending mostly 10-K/ESG tables, leaving opinion categories with no claims.
+- **Embedded-JSON reader:** skips site-wide islands (settings/config/nav/cookie…), reads only `__NEXT_DATA__.props.pageProps`, and caps each island at 40k chars.
+
+### Added
+- **Claims-only follow-up call** (prompts-v2.6 `CLAIMS_SYSTEM`): at most one per run, when fewer than 3 claims are verified (`EXTRACT_CLAIMS_FOLLOWUP`, default on; `EXTRACT_CLAIMS_MIN`, `EXTRACT_CLAIMS_FOLLOWUP_CHARS` 24k, `EXTRACT_CLAIMS_FOLLOWUP_MAX_TOKENS` 4,000, `EXTRACT_CLAIMS_FOLLOWUP_MAX_USD` 0.05).
+  - It is skipped if it could push the run past its cost cap, and it never fails a run.
+  - Claims are verified against the fetched text like any other.
+- **Visibility:** `summary.claims_verified` on every run (JSON summary, no migration). `/health` gains `runs_7d.zero_claims` and `zero_claims_runs`. The admin board shows a "⚠ 0 claims" card chip and a count in its health block.
+- No weight, rubric, scoring or publication-rule changes.
+
 ## [1.12.0] — SEC fetch fix, one annual report per run, archive-first for bot-walled hosts (pipeline-v2.14)
 
 ### Fixed
