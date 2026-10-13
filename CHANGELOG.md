@@ -10,6 +10,17 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.8.0] — Phone-first admin board
+
+### Added
+- `/admin` is a phone-first board: stacked cards with 44px tap targets and collapsible sections. Ranked companies are sorted by Index; unranked ones fall into four groups (energy unreadable → degraded/failed → low confidence → low coverage; first match wins, documented in docs/API.md).
+- Cards show name, score or reason, last run (PT) and cost, Re-run with a cost-estimate confirm, Retract/Un-retract, Details and History.
+- `POST /admin/runs/{id}/unretract`: clears a retraction, recomputes the current run under the existing rules, and logs `run_unretracted`. It removes the public correction note.
+- `GET /admin/companies/{id}/history` (redirects to the filtered runs list for now).
+
+### Changed
+- The previous dashboard moved to `/admin/classic`, and every feature is still there. No scoring or publication-rule changes.
+
 ## [1.7.0] — Resilience: fetch fallbacks, honest retries, observability
 
 One release combining what were PRs #28–#34 (follows 1.0.1 / #27). **Component change: pipeline-v2.9 →

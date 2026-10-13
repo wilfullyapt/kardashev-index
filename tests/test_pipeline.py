@@ -369,7 +369,7 @@ def test_admin_sees_runs_with_stage_timings(admin_client, db, use_deps):
     detail = admin_client.get(r.headers["location"]).text
     assert f"Queued run #{run_id}" in detail  # flash shown once
     assert 'hx-trigger="every 3s"' in detail and "waiting for the worker" in detail
-    page = admin_client.get("/admin").text
+    page = admin_client.get("/admin/classic").text
     assert "queued" in page and 'hx-trigger="every 4s"' in page and f"Queued run #{run_id}" not in page
     worker.process_next()
     part = admin_client.get("/admin/runs").text
