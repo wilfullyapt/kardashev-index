@@ -88,7 +88,10 @@ and all of them send `noindex`.
 
 | Page | What it shows |
 |---|---|
-| `GET /admin` | pending suggestions, latest runs (live), every company with its current/last run, run count and a **Re-run** button, activity log |
+| `GET /admin` | (1.8.0) phone-first **board**: pending suggestions, ranked cards sorted by Index, unranked cards in four collapsible groups (see below); each card shows name, score or reason, last run (PT) and cost, Re-run (confirm with cost estimate), Retract / Un-retract, Details, History |
+| `GET /admin/classic` | the previous dashboard: latest runs (live), every company with current/last run, identity pinning, duplicate attempts, activity log |
+| `POST /admin/runs/{id}/unretract` | (1.8.0) clears a retraction; the current run is recomputed under the existing rules; audit event `run_unretracted` (admin session + same-origin check) |
+| `GET /admin/companies/{id}/history` | company run history |
 | `GET /admin/runs?company_id=&status=&page=` | every run, newest first, 25 per page; filters by company and status; refreshes itself while a run is queued/running |
 | `GET /admin/runs/{id}` | one run: queued/started/finished (Pacific) and duration, queue wait, attempt/worker, pipeline/prompt/rubric/weights versions, prompt bundle hash, **code version**, model requested/returned, cost vs budget, tokens, searches, per-stage timings/tokens/cost/errors/detail JSON, category scores, every source (including rejected ones and why); re-run button; polls every 3 s while active |
 
@@ -104,6 +107,15 @@ Public history (published runs only; failed or unpublished runs, costs, tokens a
 | `GET /companies/{id}/runs/{n}` | read-only dossier of the n-th published run (stable ordinal, 1 = first). The current run redirects to `/companies/{id}` |
 | `GET /companies/{id}?run=N-2` | resolves a relative label to the stable URL (302) |
 | `GET /companies/{id}/runs/v0` | legacy v0 single-prompt scores, labelled superseded (only when real legacy scores exist) |
+
+### Board groups (1.8.0)
+Unranked companies get exactly one group, first match wins:
+1. **Energy couldn't be read** — current run's `rank_basis` is `energy_unreadable`.
+2. **Degraded / failed** — the latest run failed and is newer than the current run, or the current run is degraded.
+3. **Confidence below threshold** — current confidence ≤ `RANK_MIN_CONFIDENCE` (20%).
+4. **Low coverage / not enough measured** — everything else, including companies awaiting a first run.
+
+Un-retract removes the public correction note (the audit log keeps the retraction).
 
 ## Publishing guard and extraction fixes (pipeline-v2.1, prompts-v2.1)
 

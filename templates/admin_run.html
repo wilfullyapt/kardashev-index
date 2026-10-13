@@ -41,6 +41,10 @@
         {% if run.summary and run.summary.publish_note %}<p class="hint">{{ run.summary.publish_note }}</p>{% endif %}
         {% if run.retracted_at %}
         <div class="flash flash--err runhead__err"><span class="flash__tag">retracted</span><span class="wrap-any">{{ run.retracted_at|pt('%Y-%m-%d %H:%M') }} by {{ run.retracted_by or '—' }}: {{ run.retraction_reason }}</span></div>
+        <form action="/admin/runs/{{ run.id }}/unretract" method="post" class="inline"
+              data-confirm="Un-retract run #{{ run.id }}? It becomes eligible again under the normal current-run rules and its public correction note is removed. The retraction stays in the audit log.">
+            <button class="btn btn--sm btn--ghost">Un-retract run #{{ run.id }}</button>
+        </form>
         {% elif run.status == 'succeeded' %}
         <details class="retract">
             <summary class="small">Retract this run…</summary>

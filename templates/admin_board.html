@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{%- import "partials/_admin.html" as adm -%}
+
+{% block title %}Admin board — Kardashev Index{% endblock %}
+{% block head %}<meta name="robots" content="noindex, nofollow">{% endblock %}
+
+{% block content %}
+<div class="admin-top">
+    <div>
+        <p class="eyebrow">Control room</p>
+        <h1 class="h2" style="margin:0">Board</h1>
+    </div>
+    <div class="dossier__meta">
+        <span class="chip">v{{ version }}{% if code_version() %} · {{ code_version()[:7] }}{% endif %}</span>
+        <span class="chip">{{ admin }}</span>
+    </div>
+</div>
+{{ adm.nav('board') }}
+{{ adm.alerts_banner(alerts) }}
+
+{% block board_top %}{% endblock %}
+
+{% if pending %}
+<details class="bsec" open>
+    <summary class="bsec__sum"><span>Pending suggestions</span><span class="bsec__n">{{ pending|length }}</span></summary>
+    <div class="queue">
+        {% for s in pending %}
+        <div class="queue__item">
+            <div>
+                <div class="queue__name">{{ s.name }}</div>
+                {% if s.domain %}<div class="mono small" style="color:var(--gold)">{{ s.domain }}</div>{% endif %}
+                <div class="mono dim small">submitted {{ s.submitted_at|pt }}</div>
+            </div>
+            <div class="queue__actions">
+                <form action="/internal/approve/{{ s.id }}" method="post" data-confirm="Approve {{ s.name|e }}? This queues a measurement run on the paid xAI API ({{ board.cost_estimate }}).">
+                    <button class="btn btn--sm bcard__btn">Approve &amp; measure</button>
+                </form>
+                <form action="/internal/deny/{{ s.id }}" method="post" class="queue__deny">
+                    <label class="sr-only" for="deny-{{ s.id }}">Denial reason</label>
+                    <input id="deny-{{ s.id }}" type="text" name="reason" placeholder="Denial reason" required class="input input--sm">
+                    <button class="btn btn--sm btn--danger">Deny</button>
+                </form>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</details>
+{% endif %}
+
+<details class="bsec" open id="ranked">
+    <summary class="bsec__sum"><span>Ranked · by Index</span><span class="bsec__n">{{ board.ranked|length }}</span></summary>
+    <div class="bgrid">
+        {% for x in board.ranked %}{{ adm.card(x, board.cost_estimate) }}{% else %}<p class="dim">Nothing ranked yet.</p>{% endfor %}
+    </div>
+</details>
+
+<p class="eyebrow bsec__label">Not ranked · {{ board.unranked_count }}</p>
+{% for key, label, cards in board.groups %}
+<details class="bsec bsec--{{ key }}" id="group-{{ key }}"{% if cards and key in ('energy', 'degraded') %} open{% endif %}>
+    <summary class="bsec__sum"><span>{{ label }}</span><span class="bsec__n">{{ cards|length }}</span></summary>
+    <div class="bgrid">
+        {% for x in cards %}{{ adm.card(x, board.cost_estimate) }}{% else %}<p class="dim">None.</p>{% endfor %}
+    </div>
+</details>
+{% endfor %}
+
+<p class="hint">Groups, first match wins: energy couldn’t be read → degraded or failed → confidence too low → low coverage / not enough measured. Times are Pacific. Re-run calls the paid xAI API ({{ board.cost_estimate }}). The <a href="/admin/classic">classic dashboard</a> keeps identity pinning, duplicate attempts and the activity log.</p>
+{% endblock %}

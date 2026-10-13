@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from .db import get_db, SessionLocal
 from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, CATEGORIES  # noqa: F401 (re-exported)
 from . import alerts as alerts_svc
+from . import board as board_svc
 from . import runs as runs_svc
 from . import disclosure
 from . import observability
@@ -872,6 +873,16 @@ async def admin_company_identity(company_id: int, request: Request, db: Session 
 
 
 @app.get("/admin")
+def admin_board(request: Request, db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
+    """Phone-first board (1.8.0): ranked cards by Index, then unranked in four groups (app/board.py)."""
+    pending = db.query(Suggestion).filter(Suggestion.status == "pending").order_by(Suggestion.id).all()
+    return templates.TemplateResponse(
+        request, "admin_board.html",
+        {"request": request, "admin": current_admin, "version": __version__, "board": board_svc.build(db),
+         "pending": pending, "alerts": _admin_alerts(db), **pop_flash(request)})
+
+
+@app.get("/admin/classic")
 def admin_dashboard(request: Request, db: Session = Depends(get_db), current_admin: str = Depends(get_current_admin)):
     pending = db.query(Suggestion).filter(Suggestion.status == "pending").order_by(Suggestion.id).all()
     logs = db.query(IngestLog).order_by(IngestLog.timestamp.desc()).limit(20).all()
@@ -925,17 +936,50 @@ async def admin_run_retract(run_id: int, request: Request, db: Session = Depends
     if not run:
         raise HTTPException(404, "Run not found")
     form = await request.form()
+    back = _safe_next(form.get("next")) if form.get("next") else f"/admin/runs/{run_id}"
     try:
         publication.retract(db, run, current_admin, form.get("reason") or "")
     except publication.RetractError as e:
         db.rollback()
         flash(request, f"Not retracted: {e}.", "error")
-        return RedirectResponse(f"/admin/runs/{run_id}", status_code=303)
+        return RedirectResponse(back, status_code=303)
     db.commit()
     company = db.get(Company, run.company_id)
     flash(request, f"Run #{run.id} retracted. Current run is now "
                    f"{'#' + str(company.current_run_id) if company.current_run_id else 'none'}.")
-    return RedirectResponse(f"/admin/runs/{run_id}", status_code=303)
+    return RedirectResponse(back, status_code=303)
+
+
+@app.post("/admin/runs/{run_id}/unretract")
+async def admin_run_unretract(run_id: int, request: Request, db: Session = Depends(get_db),
+                              current_admin: str = Depends(get_current_admin)):
+    """Withdraw a retraction (1.8.0). The run is eligible again under the existing current-run rules;
+    audit-logged as run_unretracted with the original retraction. Same-origin check as every POST."""
+    run = db.get(JudgmentRun, run_id)
+    if not run:
+        raise HTTPException(404, "Run not found")
+    form = await request.form()
+    back = _safe_next(form.get("next")) if form.get("next") else f"/admin/runs/{run_id}"
+    try:
+        publication.unretract(db, run, current_admin, form.get("note") or "")
+    except publication.RetractError as e:
+        db.rollback()
+        flash(request, f"Not un-retracted: {e}.", "error")
+        return RedirectResponse(back, status_code=303)
+    db.commit()
+    company = db.get(Company, run.company_id)
+    flash(request, f"Run #{run.id} un-retracted. Current run is now "
+                   f"{'#' + str(company.current_run_id) if company.current_run_id else 'none'}.")
+    return RedirectResponse(back, status_code=303)
+
+
+@app.get("/admin/companies/{company_id}/history")
+def admin_company_history(company_id: int, request: Request, db: Session = Depends(get_db),
+                          current_admin: str = Depends(get_current_admin)):
+    """A company's runs (1.8.0: the filtered run list; a side-by-side compare view follows)."""
+    if not db.get(Company, company_id):
+        raise HTTPException(404, "Company not found")
+    return RedirectResponse(f"/admin/runs?company_id={company_id}", status_code=302)
 
 
 @app.post("/internal/runs/{run_id}/retract")

@@ -177,3 +177,27 @@ def retract(db: Session, run, by: str, reason: str, now=None) -> None:
                               "retracted_at": run.retracted_at.isoformat(),
                               "current_before": before.id if before else None,
                               "current_after": company.current_run_id}))
+
+
+def unretract(db: Session, run, by: str, note: str = "", now=None) -> None:
+    """Withdraw a retraction (audit-logged with the original reason). The run becomes eligible again
+    under the existing current-run rules (``replay``); nothing else about it changes."""
+    from datetime import UTC, datetime
+
+    from .models import Company, IngestLog
+    if not run.retracted_at:
+        raise RetractError(f"run {run.id} is not retracted")
+    company = db.get(Company, run.company_id)
+    before = current_run(db, company)
+    prev = {"retracted_at": run.retracted_at.isoformat(), "retracted_by": run.retracted_by,
+            "reason": run.retraction_reason}
+    run.retracted_at = run.retracted_by = run.retraction_reason = None
+    db.flush()
+    sync_pointer(db, company)
+    db.add(IngestLog(company_id=company.id, action="run_unretracted", admin_id=by,
+                     details={"run_id": run.id, "note": " ".join((note or "").split())[:500] or None,
+                              "previous_retraction": prev,
+                              "unretracted_at": (now or datetime.now(UTC)).isoformat(),
+                              "current_before": before.id if before else None,
+                              "current_after": company.current_run_id}))
+
