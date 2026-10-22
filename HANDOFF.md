@@ -30,7 +30,7 @@ Live at <https://kardashev-index.onrender.com> (no custom domain yet).
 | Part | What it is |
 |---|---|
 | Web | FastAPI (`app/main.py`), Jinja2 templates (`templates/`), HTMX 1.9.12 vendored (`static/vendor/`), hand-written CSS/SVG (`static/`). Single uvicorn process. |
-| Database | Postgres on Render (SQLite for local tests). SQLAlchemy models in `app/models.py`, Alembic migrations in `alembic/versions/` (0001–0007, all applied by the build). |
+| Database | Postgres on Render (SQLite for local tests). SQLAlchemy models in `app/models.py`, Alembic migrations in `alembic/versions/` (0001–0008, all applied by the build). |
 | Worker | In-process background worker (`app/worker.py`) started with the web app (`WORKER_ENABLED`). Runs are queued in Postgres (`judgment_runs`), picked up in order, heartbeated, checkpointed per stage, and resumed after a restart or deploy. Transient failures retry automatically (`RUN_RETRY_DELAYS_MIN`, `RUN_MAX_ATTEMPTS`). |
 | LLM | xAI API over httpx (`app/pipeline/llm.py`): Responses API with web search for resolve/research, Chat Completions for extract/judge. Model `grok-4.3` (`XAI_MODEL`). Paid. |
 | SEC | EDGAR XBRL company facts for capex/revenue (`app/pipeline/edgar.py`), needs `SEC_EDGAR_USER_AGENT`. Free, rate limited. |
@@ -86,7 +86,7 @@ app/                FastAPI app
   disclosure.py     contact address, model name, measured share (display only)
   pipeline/         runner (stages), llm, fetch, largepdf, discover, disclosure, edgar,
                     evidence, semantics, measures, aggregate, sources, prompts, methodology, config
-alembic/            migrations (versions/0001–0007)
+alembic/            migrations (versions/0001–0008)
 templates/, static/ pages, CSS, images, vendored htmx
 tests/              pytest suite (fake LLM and HTTP; no network, no spend), fixtures/
 scripts/            check_version_bump.py (CI version-check)
@@ -263,6 +263,15 @@ All optional; Default (not in `render.yaml`).
 | `SWEEP_DAILY_COST_USD` / `SWEEP_EST_RUN_USD` | daily sweep spend cap; per-run estimate | `2.0` / `0.35` |
 | `ALERT_WEBHOOK_URL` | Slack-compatible JSON webhook for failed / degraded / stuck runs. In Blueprint as a Render secret but **not set** (`/health` reports `alert_webhook: false`) | none |
 | `OBS_CACHE_S` / `OBS_WINDOW_DAYS` | `/health` observability cache lifetime (s) and window (days) for run outcomes and failing hosts | `60` / `7` |
+
+### Visit counts (1.15.0, `app/analytics.py`; no cookies, no raw IP stored)
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `ANALYTICS_ENABLED` | `0` turns off the middleware and the background writer | `1` |
+| `ANALYTICS_FLUSH_S` / `ANALYTICS_BUFFER_MAX` | batch write interval (s); in-memory buffer cap (oldest dropped) | `30` / `5000` |
+| `ANALYTICS_RAW_DAYS` | raw `page_views` retention; `page_view_daily` totals are kept | `90` |
+| `ANALYTICS_EXCLUDE_PATHS` | extra comma-separated path prefixes not to count | none |
 
 ### Local / test only
 
