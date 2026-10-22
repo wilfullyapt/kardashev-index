@@ -29,6 +29,10 @@
   </form>
   <p class="bcard__meta">Queues a measurement run now; an existing company with the same name or ticker is re-run instead.</p>
 </details>
+<details class="bsec" id="traffic" hx-get="/admin/analytics" hx-trigger="toggle once" hx-target="#traffic-body" hx-swap="outerHTML">
+  <summary class="bsec__sum"><span>Traffic</span><span class="bsec__n">30 days</span></summary>
+  <div id="traffic-body"><p class="bcard__meta"><a href="/admin/analytics">Load traffic</a></p></div>
+</details>
 {% endblock %}
 
 {% if pending %}

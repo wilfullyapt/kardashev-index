@@ -742,3 +742,11 @@ td.actions { text-align: right; white-space: nowrap; }
 /* admin: 0-claims warning (1.13.0) */
 .claimwarn { display: inline-block; font-size: .8rem; padding: .1rem .5rem; border-radius: 999px; border: 1px solid #d9822b; color: #f0a35e; }
 .bcard__when{font-size:.85em;opacity:.8;white-space:nowrap}
+
+/* Traffic (1.15.0) */
+.traffic { padding: .5rem 1rem 1rem; }
+.tbars, .ttop { list-style: none; margin: 0 0 1rem; padding: 0; }
+.tbars li { display: grid; grid-template-columns: 3.2rem 1fr 4.5rem; gap: .5rem; align-items: center; min-height: 1.4rem; }
+.tbars__bar { background: var(--line); height: .5rem; display: block; }
+.tbars__bar > span { background: var(--gold); height: 100%; display: block; }
+.ttop li { display: flex; justify-content: space-between; gap: 1rem; padding: .2rem 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
