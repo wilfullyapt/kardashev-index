@@ -37,6 +37,9 @@ def _fresh_db():
     Base.metadata.create_all(engine)
     main.RATE_LIMIT.clear()
     main.login_throttle.reset()
+    from app import analytics
+    analytics.BUFFER.reset()
+    analytics.clear_cache()
     from app.pipeline.edgar import clear_tickers_cache
     clear_tickers_cache()           # module-level cache: keep tests independent of their order
     yield

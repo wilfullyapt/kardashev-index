@@ -1,0 +1,26 @@
+{# Traffic (1.15.0): first-party visit counts. Approximate: simple bot rules, daily-salted visitor ids. #}
+<div id="traffic-body" class="traffic">
+  <p class="bcard__meta">
+    Today <strong>{{ a.today.visitors }}</strong> visitors · {{ a.today.views }} views · 7-day avg {{ a.avg7 }}/day
+    · {% if a.include_bots %}all traffic{% else %}humans only{% endif %}
+    · <a href="/admin/analytics{% if not a.include_bots %}?bots=1{% endif %}" hx-get="/admin/analytics{% if not a.include_bots %}?bots=1{% endif %}" hx-target="#traffic-body" hx-swap="outerHTML">{% if a.include_bots %}humans only{% else %}include bots{% endif %}</a>
+  </p>
+  <p class="bcard__meta">Share of all views ({{ a.total_views }}, {{ a.days }} days): human {{ a.share.human }}% · bot {{ a.share.bot }}% · monitor {{ a.share.monitor }}%{% if a.status.dropped %} · <span class="warn">{{ a.status.dropped }} dropped</span>{% endif %}. Counts are approximate.</p>
+
+  <h3 class="h3 sec-h">Visitors per day</h3>
+  <ul class="tbars" aria-label="Visitors per day, newest first">
+    {% for s in a.series %}
+    <li><span class="mono dim small">{{ s.day[5:] }}</span><span class="tbars__bar"><span style="width:{{ s.pct }}%"></span></span><span class="mono small">{{ s.visitors }} / {{ s.views }}</span></li>
+    {% endfor %}
+  </ul>
+
+  {% macro top(title, rows, empty) %}
+  <h3 class="h3 sec-h">{{ title }}</h3>
+  {% if rows %}<ol class="ttop">{% for k, v in rows %}<li><span class="mono small">{{ k }}</span><span class="mono small">{{ v }}</span></li>{% endfor %}</ol>
+  {% else %}<p class="bcard__meta">{{ empty }}</p>{% endif %}
+  {% endmacro %}
+  {{ top("Top pages", a.pages, "No page views yet.") }}
+  {{ top("Top referrers", a.refs, "No page views yet.") }}
+  {% if a.utm %}{{ top("Campaigns (utm_source)", a.utm, "") }}{% endif %}
+  {{ top("Countries", a.countries, "Country unavailable: the edge has not sent a CF-IPCountry header.") }}
+</div>

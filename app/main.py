@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from .db import get_db, SessionLocal
 from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, CATEGORIES  # noqa: F401 (re-exported)
 from . import alerts as alerts_svc
+from . import analytics
 from . import board as board_svc
 from . import runs as runs_svc
 from . import disclosure
@@ -45,6 +46,7 @@ XAI_API_KEY = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY")
 
 
 worker = Worker(SessionLocal, lambda: build_deps())
+analytics_runner = analytics.Runner(SessionLocal)
 
 
 @asynccontextmanager
@@ -57,9 +59,19 @@ async def lifespan(app: FastAPI):
             "sec.gov may answer 403", _sec_ua)
     if os.getenv("WORKER_ENABLED", "1").lower() not in ("0", "false", "no"):
         task = asyncio.create_task(worker.run_forever())
+    # Visit counts (1.15.0): batched writes + daily rollup, independent of the judgment worker.
+    a_task = asyncio.create_task(analytics_runner.run_forever()) if analytics.settings().enabled else None
     try:
         yield
     finally:
+        analytics_runner.stop()
+        if a_task:
+            try:
+                await asyncio.wait_for(a_task, timeout=10)
+            except (TimeoutError, asyncio.CancelledError):
+                pass
+            except Exception:  # pragma: no cover
+                log.exception("analytics final flush failed")
         # Graceful drain: stop claiming; the current stage finishes and the run is re-queued at its
         # checkpoint (resumed by the next instance). If the stage outlives WORKER_DRAIN_S, the process
         # exits anyway and stale-run recovery resumes it from the last completed stage.
@@ -74,6 +86,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Kardashev Index", lifespan=lifespan)
+# Visit counts (1.15.0): innermost, so canonical-host redirects are never counted. See app/analytics.py.
+app.add_middleware(analytics.AnalyticsMiddleware)
 # Canonical host (PUBLIC_BASE_URL): 301 other hosts to it; no-op when unset. robots/sitemap/favicon.
 app.add_middleware(seo.CanonicalHostMiddleware)
 app.include_router(seo.router)
@@ -304,6 +318,7 @@ def health():
             "pipeline_version": meth.PIPELINE_VERSION, "prompt_version": prompts.PROMPT_VERSION,
             "code_version": code_version(), "worker": w,
             "observability": observability.cached(worker.session_factory),
+            "analytics": analytics.status(),
             "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
                        "sec_edgar_user_agent_format_ok": sec_user_agent_ok(pipeline_settings().sec_user_agent),
                        "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
@@ -877,6 +892,15 @@ def admin_board(request: Request, db: Session = Depends(get_db), current_admin: 
 def _board_top(db: Session) -> dict:
     return {"queue": board_svc.queue(db), "spend": board_svc.spend(db),
             "health": board_svc.health(observability.cached(SessionLocal))}
+
+
+@app.get("/admin/analytics")
+def admin_analytics(request: Request, bots: int = 0, db: Session = Depends(get_db),
+                    current_admin: str = Depends(get_current_admin)):
+    """The board's Traffic section (1.15.0): visits/day, top pages, referrers, countries, bot share.
+    Humans only unless ?bots=1. Loaded when the section is opened; cached 60 s."""
+    return templates.TemplateResponse(request, "partials/_analytics.html",
+                                      {"request": request, "a": analytics.report(db, include_bots=bool(bots))})
 
 
 @app.get("/admin/board/top")

@@ -10,6 +10,27 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.15.0] — First-party visit counts (no cookies)
+
+### Added
+- **Visit counts** (`app/analytics.py`): a middleware records successful HTML page views.
+  - Recorded: path (no query string), referrer host only, `utm_source`/`utm_medium`/`utm_campaign`, country from `CF-IPCountry` when the edge sends it, and a user-agent class (human / bot / monitor).
+  - Skipped: static files, `/health`, `/admin`, `/internal`, robots/sitemap/favicon, HTMX partials, redirects, errors and non-GET requests.
+  - Visitor id: a hash of a daily random salt, the IP and the user agent. The salt lives only in memory and rotates at Pacific midnight. No cookies, no scripts, no raw IP or full user agent stored.
+- **Batched writes:** requests never touch the database. Views go into a bounded in-memory buffer (`ANALYTICS_BUFFER_MAX`, default 5000; oldest dropped and counted). A background task writes it every `ANALYTICS_FLUSH_S` (30 s) and once more on shutdown.
+- **Retention:** after 3 AM PT, finished days are rolled up into `page_view_daily` (idempotent) and raw rows older than `ANALYTICS_RAW_DAYS` (90) are deleted. Daily totals are kept.
+- **Admin board → Traffic** (`GET /admin/analytics`, loaded when the section is opened, cached 60 s): visitors and views per day for 30 days, today vs the 7-day average, top pages, referrers, utm sources and countries, plus the human / bot / monitor share. Humans only by default (`?bots=1` for all).
+- `/health` → `analytics`: buffered, written and dropped counts, last flush and error, and `country_header_seen` (whether a `CF-IPCountry` header arrived in the last 24 h).
+- Env: `ANALYTICS_ENABLED` (1), `ANALYTICS_FLUSH_S`, `ANALYTICS_BUFFER_MAX`, `ANALYTICS_RAW_DAYS`, `ANALYTICS_EXCLUDE_PATHS`.
+
+### Changed
+- **Privacy page:** a new "Visit counts" section says what is counted and how. The page no longer says "no analytics"; it says no *third-party* analytics.
+
+### Database
+- Migration **0008** (additive): new tables `page_views` and `page_view_daily`. No existing table changes. Downgrade drops both.
+
+No pipeline, prompt, weights, rubric, scoring or publication changes.
+
 ## [1.14.1] — "Run now" for scheduled runs
 
 ### Fixed
