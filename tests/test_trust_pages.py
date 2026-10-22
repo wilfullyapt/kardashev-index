@@ -49,7 +49,7 @@ def test_methodology_has_disclosures(client):
 
 def test_privacy_reflects_practices(client):
     t = client.get("/privacy").text
-    assert "no analytics" in t and "only for site administrators" in t and "Google Fonts" in t
+    assert "no third-party analytics" in t and "Visit counts" in t and "IP address is not stored" in t and "only for site administrators" in t and "Google Fonts" in t
     assert "set-cookie" not in {k.lower() for k in client.get("/privacy").headers}   # visitors get no cookie
 
 

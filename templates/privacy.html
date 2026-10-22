@@ -1,16 +1,22 @@
 {% extends "base.html" %}
 
 {% block title %}Privacy — Kardashev Index{% endblock %}
-{% block description %}What data the Kardashev Index collects: no analytics, no tracking cookies; a session cookie only for admins.{% endblock %}
+{% block description %}What data the Kardashev Index collects: cookie-free first-party visit counts, no third-party analytics or tracking cookies; a session cookie only for admins.{% endblock %}
 
 {% block content %}
     <p class="eyebrow">Privacy</p>
     <h1 class="h2" style="margin-top:0">We collect as little as we can.</h1>
-    <p class="lede muted" style="max-width:48rem">There are no accounts for visitors, no analytics, no advertising and no tracking cookies.</p>
+    <p class="lede muted" style="max-width:48rem">There are no accounts for visitors, no third-party analytics, no advertising and no tracking cookies. We count visits on our own server, without cookies (see below).</p>
 
     <section class="admin-sec" aria-labelledby="p-cookies">
         <h2 id="p-cookies" class="h3 sec-h">Cookies</h2>
         <p class="muted" style="max-width:48rem">The site sets one cookie, <span class="mono">session</span>, and only for site administrators after they sign in. It is signed and HTTP-only, contains only the admin’s sign-in state, and expires after a limited time. Ordinary visitors get no cookies from us.</p>
+    </section>
+
+    <section class="admin-sec" aria-labelledby="p-visits">
+        <h2 id="p-visits" class="h3 sec-h">Visit counts</h2>
+        <p class="muted" style="max-width:48rem">We count page views on our own server: the page, the referring site (its name only), campaign tags in the link (<span class="mono">utm_source</span>, <span class="mono">utm_medium</span>, <span class="mono">utm_campaign</span>), your country as reported by our network provider, and whether the request looks like a bot. There are no cookies or scripts for this.</p>
+        <p class="muted" style="max-width:48rem">Your IP address is not stored. It is combined with your browser’s user-agent string and a random key that changes every day and is kept only in server memory, then hashed. That lets us count unique visitors per day without being able to recognise you on another day. Raw records are deleted after 90 days; only daily totals are kept. Nothing is shared with third parties.</p>
     </section>
 
     <section class="admin-sec" aria-labelledby="p-forms">
@@ -30,6 +36,6 @@
 
     <section class="admin-sec" aria-labelledby="p-contact">
         <h2 id="p-contact" class="h3 sec-h">Contact</h2>
-        <p class="muted" style="max-width:48rem">Questions or requests about your data: {% include "partials/_contact.html" %}. If analytics or any new data collection is ever added, this page will be updated first.</p>
+        <p class="muted" style="max-width:48rem">Questions or requests about your data: {% include "partials/_contact.html" %}. If any new data collection is ever added, this page will be updated first.</p>
     </section>
 {% endblock %}
