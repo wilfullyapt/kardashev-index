@@ -276,3 +276,32 @@ class CategoryScore(Base):
     rubric_version = Column(String(32))
 
     run = relationship("JudgmentRun", back_populates="category_scores")
+
+
+# Added in 0008 (1.15.0): first-party visit counts. No cookies, no raw IP, no full user agent.
+# ``visitor`` is a hash keyed by an in-memory salt that rotates daily (see app/analytics.py).
+class PageView(Base):
+    __tablename__ = "page_views"
+    id = Column(Integer, primary_key=True)
+    ts = Column(DateTime(timezone=True), nullable=False, index=True)
+    day = Column(String(10), nullable=False, index=True)        # Pacific date, YYYY-MM-DD
+    path = Column(String(200), nullable=False)
+    ref_host = Column(String(120), nullable=True)               # host only; "direct" / "internal"
+    utm_source = Column(String(64), nullable=True)
+    utm_medium = Column(String(64), nullable=True)
+    utm_campaign = Column(String(64), nullable=True)
+    country = Column(String(2), nullable=True)                  # CF-IPCountry when present
+    ua_class = Column(String(8), nullable=False)                # human / bot / monitor
+    visitor = Column(String(16), nullable=False)
+    status = Column(Integer, nullable=False)
+
+
+class PageViewDaily(Base):
+    """Daily rollup of page_views, kept after raw rows are purged. dim: total|path|ref|country|utm_source."""
+    __tablename__ = "page_view_daily"
+    day = Column(String(10), primary_key=True)
+    dim = Column(String(12), primary_key=True)
+    key = Column(String(200), primary_key=True)
+    ua_class = Column(String(8), primary_key=True)
+    views = Column(Integer, nullable=False, default=0)
+    visitors = Column(Integer, nullable=False, default=0)
