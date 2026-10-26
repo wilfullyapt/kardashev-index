@@ -12,6 +12,8 @@ from typing import Any
 from .pipeline import methodology as meth
 
 _EMAIL_RE = re.compile(r"^[^@\s<>\"']+@[^@\s<>\"']+\.[^@\s<>\"']+$")
+# Stripe Payment Links are https only; reject anything else so templates never emit javascript: URLs.
+_HTTPS_URL_RE = re.compile(r"^https://[^\s<>\"']+$", re.IGNORECASE)
 CONTACT_PLACEHOLDER = "set CONTACT_EMAIL to publish a corrections address"
 
 
@@ -19,6 +21,12 @@ def contact_email() -> str | None:
     """CONTACT_EMAIL if it looks like a plain address, else None (templates show placeholder text)."""
     raw = (os.getenv("CONTACT_EMAIL") or "").strip()
     return raw if _EMAIL_RE.match(raw) else None
+
+
+def donate_payment_link_url() -> str | None:
+    """DONATE_PAYMENT_LINK_URL when it is a plain https URL (Stripe Payment Link). Unset/invalid → hide the button."""
+    raw = (os.getenv("DONATE_PAYMENT_LINK_URL") or "").strip()
+    return raw if _HTTPS_URL_RE.match(raw) else None
 
 
 def scoring_model() -> str:
