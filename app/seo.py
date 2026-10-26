@@ -96,7 +96,7 @@ def robots_txt(request: Request):
 def _page_paths(request: Request) -> list[str]:
     """Public pages that exist in this build (about/privacy appear once those routes ship)."""
     registered = {getattr(r, "path", None) for r in request.app.routes}
-    return [p for p in ("/", "/methodology", "/about", "/privacy", "/suggest") if p in registered]
+    return [p for p in ("/", "/methodology", "/about", "/privacy", "/suggest", "/pricing", "/terms/api", "/terms/refunds") if p in registered]
 
 
 @router.get("/sitemap.xml", include_in_schema=False)

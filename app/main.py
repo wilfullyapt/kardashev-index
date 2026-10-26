@@ -15,6 +15,9 @@ from .db import get_db, SessionLocal
 from .models import Company, Suggestion, Score, IngestLog, JudgmentRun, Source, CATEGORIES  # noqa: F401 (re-exported)
 from . import alerts as alerts_svc
 from . import analytics
+from .api_v1 import router as api_v1_router
+from .billing import routes as billing_routes
+from .billing.settings import status as billing_status
 from . import board as board_svc
 from . import runs as runs_svc
 from . import disclosure
@@ -91,6 +94,9 @@ app.add_middleware(analytics.AnalyticsMiddleware)
 # Canonical host (PUBLIC_BASE_URL): 301 other hosts to it; no-op when unset. robots/sitemap/favicon.
 app.add_middleware(seo.CanonicalHostMiddleware)
 app.include_router(seo.router)
+app.include_router(api_v1_router)
+app.include_router(billing_routes.router)
+app.include_router(billing_routes.admin_router)
 templates = Jinja2Templates(directory="templates")
 PT = ZoneInfo("America/Los_Angeles")
 
@@ -319,6 +325,7 @@ def health():
             "code_version": code_version(), "worker": w,
             "observability": observability.cached(worker.session_factory),
             "analytics": analytics.status(),
+            "billing": billing_status(),
             "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
                        "sec_edgar_user_agent_format_ok": sec_user_agent_ok(pipeline_settings().sec_user_agent),
                        "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
@@ -707,12 +714,22 @@ def _render_company(request: Request, db: Session, company: Company, hist: dict,
 
 @app.get("/about")
 def about_page(request: Request):
-    return templates.TemplateResponse(request, "about.html", {"meth": meth})
+    return templates.TemplateResponse(request, "about.html", {"meth": meth, "version": __version__})
 
 
 @app.get("/privacy")
 def privacy_page(request: Request):
-    return templates.TemplateResponse(request, "privacy.html", {})
+    return templates.TemplateResponse(request, "privacy.html", {"version": __version__})
+
+
+@app.get("/terms/api")
+def terms_api_page(request: Request):
+    return templates.TemplateResponse(request, "terms/api.html", {"request": request, "version": __version__})
+
+
+@app.get("/terms/refunds")
+def terms_refunds_page(request: Request):
+    return templates.TemplateResponse(request, "terms/refunds.html", {"request": request, "version": __version__})
 
 
 @app.get("/methodology")

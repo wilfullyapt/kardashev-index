@@ -41,7 +41,7 @@ PT = ZoneInfo("America/Los_Angeles")
 ROLLUP_HOUR_PT = 3
 DIMS = ("total", "path", "ref", "country", "utm_source")
 UA_CLASSES = ("human", "bot", "monitor")
-SKIP_PREFIXES = ("/static", "/health", "/admin", "/internal", "/robots.txt", "/sitemap.xml",
+SKIP_PREFIXES = ("/static", "/health", "/admin", "/internal", "/api/", "/billing", "/robots.txt", "/sitemap.xml",
                  "/favicon", "/apple-touch-icon")
 
 _BOT_RE = re.compile(
