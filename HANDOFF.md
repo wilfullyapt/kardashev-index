@@ -181,7 +181,7 @@ The full list with comments is in `.env.example` and `docs/API.md#configuration-
 | `HSTS_MAX_AGE` | `Strict-Transport-Security` max-age (HTTPS only) | no | `86400` (1 day) | Default (raise at launch, §11) |
 | `HSTS_INCLUDE_SUBDOMAINS` | add `includeSubDomains` | no | off | Default |
 | `PUBLIC_BASE_URL` | canonical origin: 301 from every other host (`/health`, `/internal/*` exempt); canonical/og/sitemap URLs | no (launch) | unset (no redirect) | not set yet (launch, §11) |
-| `CONTACT_EMAIL` | corrections / privacy / commercial-licensing contact on `/about`, `/privacy`, footer | no (launch) | placeholder text | not set yet (launch, §11) |
+| `CONTACT_EMAIL` | corrections / privacy / commercial-licensing contact on `/about`, `/privacy`, footer | yes (launch) | placeholder text when unset | **`contact@kardashevindex.com`** (Render secret; public on the site) |
 | `APP_ENV` | `production` forces production mode outside Render | no | unset | not needed on Render |
 | `PYTHON_VERSION` | Render runtime pin | yes (Render) | — | Blueprint (`3.12.15`) |
 | `RENDER`, `RENDER_INSTANCE_ID`, `RENDER_GIT_COMMIT`, `PORT` | production detection, worker id, deployed commit, listen port | — | — | Render injected |
@@ -335,14 +335,15 @@ All optional; Default (not in `render.yaml`).
 - **Earlier grant**: content published by **v0.5.0–v0.14.0** was CC BY 4.0. Those grants are
   irrevocable and stand. v0.4.x and earlier declared no data license.
 - **Commercial use, bulk or automated access, and resale** need a separate written license. Contact is
-  `CONTACT_EMAIL` (currently the placeholder; set it at launch).
+  `CONTACT_EMAIL` (production: `contact@kardashevindex.com`).
 - Facts and figures quoted from company sources are not covered. Third-party assets are listed in
   [NOTICE.md](NOTICE.md).
 
 ## 11. Launch checklist (in order)
 
-1. **`CONTACT_EMAIL`**: set it in the Render dashboard. It replaces the placeholder on `/about`,
-   `/privacy` and the footer, and is the commercial-licensing contact.
+1. **`CONTACT_EMAIL`**: **done** — `contact@kardashevindex.com` in the Render dashboard. It appears
+   on `/about`, `/privacy` and the footer, and is the commercial-licensing contact. Do not put a
+   personal address here.
 2. **Domain**: buy it, add it as a custom domain on the Render service, configure DNS, and wait for
    Render's TLS certificate.
 3. **`PUBLIC_BASE_URL`**: set it to `https://<domain>` once the domain serves HTTPS. Every other host,
@@ -392,6 +393,6 @@ All optional; Default (not in `render.yaml`).
 |---|---|---|
 | Current owner | **(owner to fill)** | **(owner to fill)** |
 | New owner / operator | **(owner to fill)** | **(owner to fill)** |
-| Corrections / licensing | — | `CONTACT_EMAIL` (not set yet) |
+| Corrections / licensing | — | `contact@kardashevindex.com` (`CONTACT_EMAIL`) |
 | Render billing | **(owner to fill)** | **(owner to fill)** |
 | xAI account | **(owner to fill)** | **(owner to fill)** |

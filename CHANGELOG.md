@@ -10,6 +10,13 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+### Changed
+- **Public contact:** production `CONTACT_EMAIL` is `contact@kardashevindex.com` (Render). Documented in
+  `.env.example`, HANDOFF, and DATA-LICENSE. The local unset-placeholder no longer says "before launch".
+  No personal email addresses are present in the current tree. Git history was not rewritten; older
+  commits may still mention launch placeholders.
+
+
 ## [1.15.0] — First-party visit counts (no cookies)
 
 ### Added

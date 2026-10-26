@@ -49,6 +49,6 @@ def test_about_license_section(client, monkeypatch):
     assert 'id="earlier-license"' in about and BY + "legalcode" in about and "0.5.0 through 0.14.0" in about
     assert 'id="commercial-licensing"' in about and "bulk or automated access" in about and "resale" in about
     assert "not covered by this license" in about and "MIT licensed" in about
-    assert "a corrections address will be published here before launch" in about   # placeholder without CONTACT_EMAIL
+    assert "set CONTACT_EMAIL to publish a corrections address" in about   # placeholder without CONTACT_EMAIL
     monkeypatch.setenv("CONTACT_EMAIL", "licensing@example.com")
     assert 'href="mailto:licensing@example.com"' in client.get("/about").text

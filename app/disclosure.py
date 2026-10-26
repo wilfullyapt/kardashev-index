@@ -12,7 +12,7 @@ from typing import Any
 from .pipeline import methodology as meth
 
 _EMAIL_RE = re.compile(r"^[^@\s<>\"']+@[^@\s<>\"']+\.[^@\s<>\"']+$")
-CONTACT_PLACEHOLDER = "a corrections address will be published here before launch"
+CONTACT_PLACEHOLDER = "set CONTACT_EMAIL to publish a corrections address"
 
 
 def contact_email() -> str | None:
