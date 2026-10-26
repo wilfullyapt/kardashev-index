@@ -10,11 +10,34 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
+## [1.16.0] — Paid API + Stripe Billing (feature-flagged)
+
+### Added
+- **Paid JSON API** (`/api/v1`): authenticated reads of already-public published data
+  (`/meta`, `/leaderboard`, `/companies/{id}`, `/companies/{id}/history`). Same facts the HTML
+  site shows. Hermes keys are rejected on this surface.
+- **Hashed API keys** (`ki_live_` / `ki_test_`): HMAC-SHA256 with `API_KEY_PEPPER`. Plaintext shown
+  once on `/pricing/success` after Checkout, then cleared. Admin mint at `POST /admin/api-keys/mint`.
+- **Quotas**: hard HTTP 429 at the monthly read cap; `X-RateLimit-*` headers on every successful read.
+- **Stripe Billing**: Checkout (`POST /billing/checkout`), Customer Portal (`POST /billing/portal`),
+  webhook (`POST /billing/webhook`) for `checkout.session.completed`, subscription updated/deleted,
+  invoice paid/failed. Idempotent via `stripe_events`. **Paying never changes publication or public scores.**
+- **Pricing page** (`/pricing`): PLACEHOLDER tiers Explorer $49 / Research $199 / Operator $499.
+  Ghost-run caps are reserved for a later release and are not callable yet.
+- **Legal**: `/terms/api`, `/terms/refunds`; privacy and about pages mention Stripe and the API.
+- Feature flags default **off**: `API_V1_ENABLED=0`, `BILLING_ENABLED=0`. Endpoints stay inert
+  (503 / Checkout hidden) until secrets and flags are set on Render.
+
+### Database
+- Migration **0009** (additive): `api_customers`, `api_entitlements`, `api_keys`, `stripe_events`.
+  Downgrade drops all four. No existing table changes.
+
 ### Changed
-- **Public contact:** production `CONTACT_EMAIL` is `contact@kardashevindex.com` (Render). Documented in
-  `.env.example`, HANDOFF, and DATA-LICENSE. The local unset-placeholder no longer says "before launch".
-  No personal email addresses are present in the current tree. Git history was not rewritten; older
-  commits may still mention launch placeholders.
+- `/health` → `billing` status (flags, configured, ready, which price ids are set — never secret values).
+- Analytics skips `/api/` and `/billing*`. Sitemap and nav include `/pricing` and the terms pages.
+- Dependency: `stripe==14.0.0`.
+
+No pipeline, prompt, weights, rubric, scoring or publication-rule changes.
 
 
 ## [1.15.0] — First-party visit counts (no cookies)
