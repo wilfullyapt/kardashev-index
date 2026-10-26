@@ -10,12 +10,17 @@ scored with. Whenever a component version changes, the entry here says so.
 
 ## [Unreleased]
 
-### Changed
-- **Public contact:** production `CONTACT_EMAIL` is `contact@kardashevindex.com` (Render). Documented in
-  `.env.example`, HANDOFF, and DATA-LICENSE. The local unset-placeholder no longer says "before launch".
-  No personal email addresses are present in the current tree. Git history was not rewritten; older
-  commits may still mention launch placeholders.
+## [1.15.1] — Donate via Stripe Payment Link
 
+### Added
+- **Support the Index:** when `DONATE_PAYMENT_LINK_URL` is set to an https URL (a Stripe Payment Link),
+  `/about#a-support` and the footer show a Donate link. The app does not use the Stripe SDK; it only
+  links out. Unset or non-https values hide the link. Donations are not a commercial license, do not
+  grant API access, and do not change scores.
+- `/health` → `config.donate` is true when a valid link is configured.
+- Privacy: Stripe listed as the donation payment processor.
+
+No pipeline, scoring, publication, or database changes.
 
 ## [1.15.0] — First-party visit counts (no cookies)
 
