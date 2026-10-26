@@ -69,7 +69,7 @@ def test_wayback_never_looks_up_sec_urls():
 
 
 @pytest.mark.parametrize("ua,ok", [
-    ("Kardashev Index ops@example.com", True), ("KI wil@kardashevindex.com", True),
+    ("Kardashev Index ops@example.com", True), ("KI contact@kardashevindex.com", True),
     ("ops@example.com", False), ("KardashevIndex", False), ("Kardashev Index", False), ("", False), (None, False),
 ])
 def test_sec_user_agent_format(ua, ok):
