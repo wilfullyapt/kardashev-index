@@ -182,6 +182,7 @@ The full list with comments is in `.env.example` and `docs/API.md#configuration-
 | `HSTS_INCLUDE_SUBDOMAINS` | add `includeSubDomains` | no | off | Default |
 | `PUBLIC_BASE_URL` | canonical origin: 301 from every other host (`/health`, `/internal/*` exempt); canonical/og/sitemap URLs | no (launch) | unset (no redirect) | not set yet (launch, §11) |
 | `CONTACT_EMAIL` | corrections / privacy / commercial-licensing contact on `/about`, `/privacy`, footer | yes (launch) | placeholder text when unset | **`contact@kardashevindex.com`** (Render secret; public on the site) |
+| `DONATE_PAYMENT_LINK_URL` | Stripe Payment Link for “Support the Index” on `/about` and the footer (https only). No Stripe SDK; the page just links out. Unset or non-https = Donate hidden | no | unset (hidden) | Render secret (`sync: false`); create the link in Stripe Dashboard first |
 | `APP_ENV` | `production` forces production mode outside Render | no | unset | not needed on Render |
 | `PYTHON_VERSION` | Render runtime pin | yes (Render) | — | Blueprint (`3.12.15`) |
 | `RENDER`, `RENDER_INSTANCE_ID`, `RENDER_GIT_COMMIT`, `PORT` | production detection, worker id, deployed commit, listen port | — | — | Render injected |

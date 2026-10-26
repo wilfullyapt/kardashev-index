@@ -36,6 +36,9 @@ services:
         sync: false
       - key: ALERT_WEBHOOK_URL
         sync: false
+      # Stripe Payment Link URL for "Support the Index" (https://buy.stripe.com/...). Unset = hide Donate.
+      - key: DONATE_PAYMENT_LINK_URL
+        sync: false
       - key: SECRET_KEY
         generateValue: true
     # Deploy only after the commit's GitHub checks pass (lint, test, test-postgres; version-check is
