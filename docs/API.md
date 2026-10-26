@@ -347,6 +347,45 @@ Every run's `summary.memory` has `stages_rss_mb` (RSS after each stage), `peak_r
 `/internal/health`, `/internal/logs` (new actions: `judgment_run`, `judge_error`),
 `/internal/deny/{id}`, `/internal/test-suggestion`, `/internal/hermes-activity`.
 
+
+## Public paid API (v1, app 1.16.0)
+
+Commercial JSON access to **already-published** Index data. Feature-flagged: defaults off until
+`API_V1_ENABLED=1` and `API_KEY_PEPPER` are set. Stripe Checkout needs `BILLING_ENABLED=1` plus
+Stripe secrets and price ids. **Paying never changes public scores, ranking, or publication.**
+Hermes (`HERMES_API_KEY`) is a separate operator surface and is rejected on `/api/v1`.
+
+### Auth
+- Header `Authorization: Bearer ki_live_…` or `X-Api-Key: ki_live_…` (also `ki_test_` in test mode).
+- Keys are HMAC-SHA256 hashed with `API_KEY_PEPPER`; plaintext is shown once after Checkout.
+
+### Endpoints
+| Method | Path | Notes |
+|---|---|---|
+| GET | `/api/v1/meta` | versions, license pointer, billing flags (no secrets) |
+| GET | `/api/v1/leaderboard` | `?limit=&q=&include_unranked=` |
+| GET | `/api/v1/companies/{id}` | current published run + categories |
+| GET | `/api/v1/companies/{id}/history` | published run history |
+| GET | `/pricing` | PLACEHOLDER tiers; Checkout when billing ready |
+| POST | `/billing/checkout` | form: `tier`, optional `email` → 303 to Stripe |
+| GET | `/pricing/success` | reveals key once (`?session_id=`) |
+| POST | `/billing/portal` | form: `email` or `customer_id` → Stripe Customer Portal |
+| POST | `/billing/webhook` | Stripe signatures; mint/revoke keys |
+| POST | `/admin/api-keys/mint` | admin session; Enterprise / dogfood |
+| POST | `/admin/api-keys/{id}/revoke` | admin session |
+
+Hard **429** at the monthly read cap (`X-RateLimit-Limit` / `Remaining` / `Tier` headers).
+
+### PLACEHOLDER tiers
+| Tier | $/mo | Reads / mo | Ghost / mo (later) |
+|---|---|---|---|
+| Explorer | 49 | 10,000 | 0 |
+| Research | 199 | 100,000 | 2 |
+| Operator | 499 | 500,000 | 20 |
+| Enterprise | custom | custom | custom |
+
+Ghost runs are **not** implemented in 1.16.0 (branch C).
+
 ## Configuration (environment)
 
 | Variable | Default | Purpose |
