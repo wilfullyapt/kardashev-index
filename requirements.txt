@@ -18,3 +18,4 @@ pypdf==6.21.2
 rapidfuzz==3.14.6  # for dedup normalization
 itsdangerous==2.2.0
 tzdata==2026.5
+stripe==14.0.0

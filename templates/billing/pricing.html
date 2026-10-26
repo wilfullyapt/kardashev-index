@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+
+{% block title %}API pricing — Kardashev Index{% endblock %}
+{% block description %}PLACEHOLDER paid API tiers for the Kardashev Index: Explorer, Research, Operator. Commercial JSON access to already-public published scores. Paying never changes public rankings.{% endblock %}
+
+{% block content %}
+    <p class="eyebrow">API</p>
+    <h1 class="h2" style="margin-top:0">Commercial API access.</h1>
+    <p class="lede muted" style="max-width:48rem">JSON reads of the same published Index the website shows. Paying never changes a public score. Prices below are <b>PLACEHOLDERS</b> until go-live. Ghost runs and evidence packs ship in a later release.</p>
+
+    {% if not billing.billing_ready %}
+    <div class="flash flash--err" role="status"><span class="flash__tag">Not live</span>
+      <span>Self-serve Checkout is not enabled yet. Enterprise / early access: {% include "partials/_contact.html" %}.</span></div>
+    {% endif %}
+
+    <div class="admin-sec" style="display:grid;gap:1rem;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));margin-top:1.5rem">
+      {% for t in tiers %}
+      <section class="card" style="padding:1.25rem;border:1px solid var(--line, #2a2a32);border-radius:8px">
+        <h2 class="h3" style="margin:0">{{ t.name }}</h2>
+        <p class="mono" style="margin:.4rem 0;font-size:1.4rem">${{ t.price_usd_monthly }}<span class="dim" style="font-size:.85rem"> / mo</span>
+          <span class="dim" style="font-size:.7rem">PLACEHOLDER</span></p>
+        <p class="muted" style="min-height:3.2rem">{{ t.blurb }}</p>
+        <ul class="criteria" style="margin:0 0 1rem;padding:0;list-style:none">
+          <li><span class="mono">reads</span><span>{{ '{:,}'.format(t.reads_per_month) }} / month (hard 429 at cap)</span></li>
+          <li><span class="mono">ghost</span><span>{{ t.ghost_runs_per_month }} / month (not yet available)</span></li>
+        </ul>
+        {% if billing.billing_ready and t.checkout_available %}
+        <form method="post" action="/billing/checkout">
+          <input type="hidden" name="tier" value="{{ t.key }}">
+          <label class="muted" style="display:block;font-size:.8rem;margin-bottom:.3rem">Email (optional)
+            <input type="email" name="email" placeholder="you@org.com" style="width:100%;margin-top:.2rem"></label>
+          <button type="submit" class="btn btn--sm">Subscribe</button>
+        </form>
+        {% else %}
+        <p class="dim" style="font-size:.85rem">Checkout unavailable — contact for Enterprise.</p>
+        {% endif %}
+      </section>
+      {% endfor %}
+    </div>
+
+    <section class="admin-sec" style="margin-top:2rem">
+      <h2 class="h3 sec-h">Enterprise</h2>
+      <p class="muted">Custom quotas and admin-minted keys: {% include "partials/_contact.html" %}.</p>
+      <p class="muted">Terms: <a href="/terms/api">API terms</a> · <a href="/terms/refunds">Refunds</a> · <a href="/privacy">Privacy</a>.</p>
+      {% if billing.billing_ready %}
+      <form method="post" action="/billing/portal" style="margin-top:1rem;max-width:24rem">
+        <label class="muted" style="display:block;font-size:.8rem">Manage billing (email used at Checkout)
+          <input type="email" name="email" required placeholder="you@org.com" style="width:100%;margin-top:.2rem"></label>
+        <button type="submit" class="btn btn--sm" style="margin-top:.5rem">Open Customer Portal</button>
+      </form>
+      {% endif %}
+    </section>
+{% endblock %}

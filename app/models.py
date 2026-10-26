@@ -305,3 +305,62 @@ class PageViewDaily(Base):
     ua_class = Column(String(8), primary_key=True)
     views = Column(Integer, nullable=False, default=0)
     visitors = Column(Integer, nullable=False, default=0)
+
+
+# Added in 0009 (1.16.0): paid API customers, hashed keys, entitlements, Stripe event idempotency.
+# Paying never changes publication or public scores (Hermes /current_run_id untouched).
+class ApiCustomer(Base):
+    __tablename__ = "api_customers"
+    id = Column(Integer, primary_key=True)
+    email = Column(String(320), nullable=False, index=True)
+    stripe_customer_id = Column(String(64), nullable=True, unique=True, index=True)
+    stripe_subscription_id = Column(String(64), nullable=True, index=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    entitlements = relationship("ApiEntitlement", back_populates="customer", uselist=False)
+    keys = relationship("ApiKey", back_populates="customer")
+
+
+class ApiEntitlement(Base):
+    __tablename__ = "api_entitlements"
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("api_customers.id"), nullable=False, unique=True, index=True)
+    tier = Column(String(32), nullable=False)           # explorer|research|operator|enterprise
+    status = Column(String(32), nullable=False, default="active")  # active|past_due|canceled
+    reads_per_month = Column(Integer, nullable=False)
+    reads_used = Column(Integer, nullable=False, default=0)
+    period_start = Column(DateTime(timezone=True), nullable=True)
+    period_end = Column(DateTime(timezone=True), nullable=True)
+    ghost_runs_per_month = Column(Integer, nullable=False, default=0)  # reserved for branch C
+    stripe_price_id = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    customer = relationship("ApiCustomer", back_populates="entitlements")
+
+
+class ApiKey(Base):
+    __tablename__ = "api_keys"
+    id = Column(Integer, primary_key=True)
+    customer_id = Column(Integer, ForeignKey("api_customers.id"), nullable=False, index=True)
+    key_prefix = Column(String(24), nullable=False, index=True)   # e.g. ki_live_abcd
+    key_hash = Column(String(64), nullable=False, unique=True, index=True)
+    label = Column(String(64), nullable=True)
+    status = Column(String(16), nullable=False, default="active")  # active|revoked
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    plaintext_once = Column(Text, nullable=True)                   # cleared after first reveal
+    stripe_checkout_session_id = Column(String(128), nullable=True, index=True)
+
+    customer = relationship("ApiCustomer", back_populates="keys")
+
+
+class StripeEvent(Base):
+    __tablename__ = "stripe_events"
+    id = Column(String(64), primary_key=True)            # evt_…
+    type = Column(String(64), nullable=False)
+    received_at = Column(DateTime(timezone=True), server_default=func.now())
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    payload = Column(JSON, nullable=True)

@@ -182,6 +182,11 @@ The full list with comments is in `.env.example` and `docs/API.md#configuration-
 | `HSTS_INCLUDE_SUBDOMAINS` | add `includeSubDomains` | no | off | Default |
 | `PUBLIC_BASE_URL` | canonical origin: 301 from every other host (`/health`, `/internal/*` exempt); canonical/og/sitemap URLs | no (launch) | unset (no redirect) | not set yet (launch, §11) |
 | `CONTACT_EMAIL` | corrections / privacy / commercial-licensing contact on `/about`, `/privacy`, footer | yes (launch) | placeholder text when unset | **`contact@kardashevindex.com`** (Render secret; public on the site) |
+| `API_V1_ENABLED` / `BILLING_ENABLED` | paid `/api/v1` + Stripe Checkout (default off) | no | `0` | Render; keep `0` until Stripe Products/Prices + smoke test |
+| `API_KEY_PEPPER` | HMAC pepper for `ki_*` API keys | yes, before enabling API | none | Render secret |
+| `API_KEY_MODE` | optional `live` or `test` key prefix override | no | from `STRIPE_SECRET_KEY` | Render |
+| `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` | Stripe secret + webhook signing secret | yes, before Billing | none | Render secrets |
+| `STRIPE_PRICE_EXPLORER` / `STRIPE_PRICE_RESEARCH` / `STRIPE_PRICE_OPERATOR` | Stripe Price ids for PLACEHOLDER tiers | yes, before Billing | none | Render secrets |
 | `APP_ENV` | `production` forces production mode outside Render | no | unset | not needed on Render |
 | `PYTHON_VERSION` | Render runtime pin | yes (Render) | — | Blueprint (`3.12.15`) |
 | `RENDER`, `RENDER_INSTANCE_ID`, `RENDER_GIT_COMMIT`, `PORT` | production detection, worker id, deployed commit, listen port | — | — | Render injected |
@@ -341,6 +346,7 @@ All optional; Default (not in `render.yaml`).
 
 ## 11. Launch checklist (in order)
 
+1. **Paid API (1.16.0):** code on `feat/paid-api-billing` (do not merge until Stripe Products/Prices, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, price ids, and a test Checkout → key → revoke all work). Flags stay `0` until then. Paying never changes public scores.
 1. **`CONTACT_EMAIL`**: **done** — `contact@kardashevindex.com` in the Render dashboard. It appears
    on `/about`, `/privacy` and the footer, and is the commercial-licensing contact. Do not put a
    personal address here.

@@ -36,6 +36,22 @@ services:
         sync: false
       - key: ALERT_WEBHOOK_URL
         sync: false
+      - key: API_V1_ENABLED
+        value: "0"
+      - key: BILLING_ENABLED
+        value: "0"
+      - key: API_KEY_PEPPER
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: STRIPE_PRICE_EXPLORER
+        sync: false
+      - key: STRIPE_PRICE_RESEARCH
+        sync: false
+      - key: STRIPE_PRICE_OPERATOR
+        sync: false
       - key: SECRET_KEY
         generateValue: true
     # Deploy only after the commit's GitHub checks pass (lint, test, test-postgres; version-check is

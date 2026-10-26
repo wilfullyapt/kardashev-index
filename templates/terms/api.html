@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}API terms — Kardashev Index{% endblock %}
+{% block description %}Commercial API license terms for the Kardashev Index paid JSON API.{% endblock %}
+
+{% block content %}
+    <p class="eyebrow">Legal</p>
+    <h1 class="h2" style="margin-top:0">API terms (PLACEHOLDER).</h1>
+    <p class="lede muted" style="max-width:48rem">These terms apply to paid <span class="mono">/api/v1</span> access. The public site remains CC BY-NC 4.0 for non-commercial human use. Commercial bulk/automated access requires this API license.</p>
+    <section class="admin-sec">
+      <h2 class="h3 sec-h">License</h2>
+      <p class="muted">A valid subscription grants a non-exclusive, non-transferable license to call <span class="mono">/api/v1</span> within your monthly read quota, for internal research or product use. You may not resell raw Index dumps, scrape the HTML site as a substitute for the API, or present paid access as influence over public scores.</p>
+    </section>
+    <section class="admin-sec">
+      <h2 class="h3 sec-h">Integrity</h2>
+      <p class="muted"><b>Paying never changes public scores, ranking, or publication.</b> Keys cannot approve, deny, retract or re-run companies. Operator tools remain separate (Hermes).</p>
+    </section>
+    <section class="admin-sec">
+      <h2 class="h3 sec-h">Keys &amp; quotas</h2>
+      <p class="muted">Keys are secret. Hard 429 at the monthly read cap (no auto overage). Cancel via Stripe Customer Portal; access ends when the subscription is canceled and keys are revoked.</p>
+    </section>
+    <section class="admin-sec">
+      <h2 class="h3 sec-h">Contact</h2>
+      <p class="muted">{% include "partials/_contact.html" %} · <a href="/terms/refunds">Refunds</a> · <a href="/pricing">Pricing</a></p>
+    </section>
+{% endblock %}

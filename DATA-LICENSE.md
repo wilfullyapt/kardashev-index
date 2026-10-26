@@ -52,7 +52,7 @@ A separate written license is required for:
 - **resale or redistribution** of the data, alone or as part of a product, dataset or service.
 
 Contact: the address published on the site's [About page](https://kardashev-index.onrender.com/about#license)
-(set by the `CONTACT_EMAIL` configuration; production uses
+Self-serve tiers (PLACEHOLDER): `/pricing`. Enterprise contact (set by the `CONTACT_EMAIL` configuration; production uses
 `contact@kardashevindex.com`).
 
 Scores are AI-assisted and may contain errors; they are provided as-is and are not investment

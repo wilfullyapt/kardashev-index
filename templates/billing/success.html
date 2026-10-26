@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% block title %}API key — Kardashev Index{% endblock %}
+{% block description %}Your Kardashev Index API key. Shown once.{% endblock %}
+
+{% block content %}
+    <p class="eyebrow">API</p>
+    <h1 class="h2" style="margin-top:0">Your API key.</h1>
+    {% if api_key %}
+    <p class="lede muted">Copy it now. We store only a hash; this page will not show it again.</p>
+    <pre class="mono" style="padding:1rem;background:#111;border-radius:6px;overflow:auto;user-select:all">{{ api_key }}</pre>
+    <p class="muted">Use <span class="mono">Authorization: Bearer …</span> or <span class="mono">X-Api-Key</span> on <span class="mono">/api/v1/*</span>.</p>
+    {% else %}
+    <div class="flash flash--err"><span class="flash__tag">Already shown</span>
+      <span>No key to reveal for this session (already copied, or Checkout not finished). Manage billing from <a href="/pricing">pricing</a> or contact us.</span></div>
+    {% endif %}
+    <p class="muted" style="margin-top:1.5rem"><a href="/pricing">← Pricing</a> · <a href="/terms/api">API terms</a></p>
+{% endblock %}
