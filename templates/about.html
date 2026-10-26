@@ -44,6 +44,18 @@
         <p class="muted">The source code is <a href="https://github.com/wilfullyapt/kardashev-index/blob/main/LICENSE">MIT licensed</a>. Third-party assets (htmx, Google Fonts under the SIL Open Font License) are listed in <a href="https://github.com/wilfullyapt/kardashev-index/blob/main/NOTICE.md">NOTICE.md</a>.</p>
     </section>
 
+
+    <section class="admin-sec" aria-labelledby="a-support">
+        <h2 id="a-support" class="h3 sec-h">Support the Index</h2>
+        <p class="muted" style="max-width:48rem">The Kardashev Index is an independent project. If you find it useful, you can make a one-time donation. Donations are processed by Stripe; we never see your card number. A donation is not a commercial license, does not grant API access, and does not change any score.</p>
+        {% set _donate = donate_payment_link_url() %}
+        {% if _donate %}
+        <p style="margin-top:1rem"><a class="btn btn--sm" href="{{ _donate }}" rel="noopener noreferrer">Donate via Stripe</a></p>
+        {% else %}
+        <p class="muted" style="max-width:48rem">A donation link will appear here once it is configured. Questions: {% include "partials/_contact.html" %}.</p>
+        {% endif %}
+    </section>
+
     <section class="admin-sec" aria-labelledby="a-more">
         <h2 id="a-more" class="h3 sec-h">More</h2>
         <p class="muted">How we handle data: <a href="/privacy">privacy</a>. Service status: <a href="/health">/health</a>.</p>

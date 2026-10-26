@@ -132,6 +132,7 @@ templates.env.filters["num"] = fmt_num
 templates.env.globals["code_version"] = code_version
 templates.env.globals["version"] = __version__  # pages that don't pass it still show the real version
 templates.env.globals["contact_email"] = disclosure.contact_email
+templates.env.globals["donate_payment_link_url"] = disclosure.donate_payment_link_url
 templates.env.globals["contact_placeholder"] = disclosure.CONTACT_PLACEHOLDER
 templates.env.globals["scoring_model"] = disclosure.scoring_model
 templates.env.globals["measured_share"] = disclosure.measured_share
@@ -321,7 +322,8 @@ def health():
             "analytics": analytics.status(),
             "config": {"sec_edgar_user_agent": bool(pipeline_settings().sec_user_agent),
                        "sec_edgar_user_agent_format_ok": sec_user_agent_ok(pipeline_settings().sec_user_agent),
-                       "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL"))}}
+                       "alert_webhook": bool(os.getenv("ALERT_WEBHOOK_URL")),
+                       "donate": bool(disclosure.donate_payment_link_url())}}
     return JSONResponse(body, status_code=503 if "db_error" in w else 200)
 
 

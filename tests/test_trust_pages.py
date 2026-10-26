@@ -104,3 +104,34 @@ def test_display_does_not_change_scores_or_ranking(client, db):
     client.get(f"/companies/{c.id}")
     db.refresh(run)
     assert run.index_score == 6.0 and run.ranked is True
+
+
+def test_donate_link_hidden_when_unset(client, monkeypatch):
+    monkeypatch.delenv("DONATE_PAYMENT_LINK_URL", raising=False)
+    about = client.get("/about").text
+    assert 'id="a-support"' in about and "Donate via Stripe" not in about
+    assert "donation link will appear here once it is configured" in about
+    foot = client.get("/").text
+    assert 'href="/about#a-support"' not in foot
+    assert client.get("/health").json()["config"]["donate"] is False
+
+
+def test_donate_link_shown_for_https_payment_link(client, monkeypatch):
+    url = "https://buy.stripe.com/test_donate_example"
+    monkeypatch.setenv("DONATE_PAYMENT_LINK_URL", url)
+    about = client.get("/about").text
+    assert f'href="{url}"' in about and "Donate via Stripe" in about
+    assert "not a commercial license" in about and "does not grant API access" in about
+    foot = client.get("/").text
+    assert 'href="/about#a-support"' in foot
+    assert client.get("/health").json()["config"]["donate"] is True
+    privacy = client.get("/privacy").text
+    assert "Donations" in privacy and "Stripe Payment Link" in privacy
+
+
+@pytest.mark.parametrize("bad", ["", "http://buy.stripe.com/x", "javascript:alert(1)", "not-a-url",
+                                  "https://buy.stripe.com/x<script>"])
+def test_donate_link_rejects_non_https(client, monkeypatch, bad):
+    monkeypatch.setenv("DONATE_PAYMENT_LINK_URL", bad)
+    assert "Donate via Stripe" not in client.get("/about").text
+    assert client.get("/health").json()["config"]["donate"] is False
